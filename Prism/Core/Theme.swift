@@ -7,59 +7,85 @@
 
 import UIKit
 
-// MARK: - Prism Theme
+// MARK: - Prism Theme: "Digital Zen"
+// Japanese Minimalist / Notion-inspired aesthetic
+// Keywords: Zen, Paper-like, Matte, High Contrast, Typography-driven, Clean
 
 enum PrismTheme {
     
-    // MARK: - Colors
+    // MARK: - Colors (Monochromatic "Notion" Palette)
     
     enum Colors {
-        // Base
-        static let background = UIColor(hex: "#121212")
-        static let surface = UIColor(hex: "#1E1E1E")
-        static let surfaceLight = UIColor(hex: "#2A2A2A")
+        // Background - Off-White / Warm Paper
+        static let background = UIColor(hex: "#F7F7F5")
+        static let backgroundPure = UIColor.white
         
-        // Accent
-        static let cyan = UIColor(hex: "#00D4FF")
-        static let purple = UIColor(hex: "#A855F7")
-        static let neonGreen = UIColor(hex: "#00FF88")
-        static let electricBlue = UIColor(hex: "#0066FF")
+        // Surface - Cards/Toolbar
+        static let surface = UIColor.white
+        static let surfaceElevated = UIColor.white.withAlphaComponent(0.98)
         
-        // Text
-        static let textPrimary = UIColor.white
-        static let textSecondary = UIColor(white: 0.7, alpha: 1.0)
-        static let textMuted = UIColor(white: 0.5, alpha: 1.0)
+        // Text - Ink & Stone
+        static let textPrimary = UIColor(hex: "#37352F")      // Notion Ink Black
+        static let textSecondary = UIColor(hex: "#9B9A97")    // Stone Grey
+        static let textMuted = UIColor(hex: "#B4B4B4")
+        
+        // Accent - Solid Charcoal (Monochrome focus)
+        static let accent = UIColor(hex: "#2F2F2F")
+        static let accentSubtle = UIColor(hex: "#787774")
         
         // Semantic
-        static let success = UIColor(hex: "#00FF88")
-        static let error = UIColor(hex: "#FF4757")
-        static let warning = UIColor(hex: "#FFA502")
+        static let success = UIColor(hex: "#2E7D32")          // Muted Green
+        static let error = UIColor(hex: "#C62828")            // Muted Red
+        static let warning = UIColor(hex: "#EF6C00")          // Muted Orange
         
-        // Border
-        static let borderLight = UIColor.white.withAlphaComponent(0.15)
-        static let borderMedium = UIColor.white.withAlphaComponent(0.25)
+        // Border - Crisp thin lines
+        static let border = UIColor(hex: "#E0E0E0")
+        static let borderLight = UIColor.lightGray.withAlphaComponent(0.2)
+        static let borderMedium = UIColor.lightGray.withAlphaComponent(0.3)
         
-        // Gradients
-        static let gradientCyan = [cyan.cgColor, electricBlue.cgColor]
-        static let gradientPurple = [purple.cgColor, cyan.cgColor]
+        // Icon states
+        static let iconActive = UIColor.label
+        static let iconInactive = UIColor.secondaryLabel
     }
     
-    // MARK: - Fonts
+    // MARK: - Fonts (SF Pro + NY Serif for titles)
     
     enum Fonts {
-        static let title = UIFont.systemFont(ofSize: 28, weight: .bold)
-        static let headline = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        // Editorial titles using New York Serif
+        static let largeTitle: UIFont = {
+            if let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .largeTitle)
+                .withDesign(.serif) {
+                return UIFont(descriptor: descriptor, size: 34)
+            }
+            return UIFont.systemFont(ofSize: 34, weight: .bold)
+        }()
+        
+        static let title: UIFont = {
+            if let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .title1)
+                .withDesign(.serif) {
+                return UIFont(descriptor: descriptor, size: 28)
+            }
+            return UIFont.systemFont(ofSize: 28, weight: .bold)
+        }()
+        
+        // UI elements use SF Pro
+        static let headline = UIFont.systemFont(ofSize: 17, weight: .semibold)
         static let body = UIFont.systemFont(ofSize: 16, weight: .regular)
-        static let caption = UIFont.systemFont(ofSize: 13, weight: .medium)
-        static let mono = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        static let callout = UIFont.systemFont(ofSize: 15, weight: .regular)
+        static let caption = UIFont.systemFont(ofSize: 13, weight: .regular)
+        static let captionMedium = UIFont.systemFont(ofSize: 13, weight: .medium)
+        static let mono = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         
         static let logo: UIFont = {
-            let font = UIFont.systemFont(ofSize: 22, weight: .bold)
-            return font
+            if let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .headline)
+                .withDesign(.serif) {
+                return UIFont(descriptor: descriptor, size: 20)
+            }
+            return UIFont.systemFont(ofSize: 20, weight: .semibold)
         }()
     }
     
-    // MARK: - Spacing
+    // MARK: - Spacing (Generous "Zen" whitespace)
     
     enum Spacing {
         static let xs: CGFloat = 4
@@ -67,16 +93,36 @@ enum PrismTheme {
         static let md: CGFloat = 16
         static let lg: CGFloat = 24
         static let xl: CGFloat = 32
+        static let xxl: CGFloat = 48
+        static let section: CGFloat = 64        // Large section breaks
     }
     
     // MARK: - Corner Radius
     
     enum Radius {
-        static let small: CGFloat = 8
-        static let medium: CGFloat = 12
-        static let large: CGFloat = 16
-        static let xl: CGFloat = 20
-        static let pill: CGFloat = 28
+        static let small: CGFloat = 6
+        static let medium: CGFloat = 10
+        static let large: CGFloat = 14
+        static let xl: CGFloat = 18
+        static let pill: CGFloat = 24
+    }
+    
+    // MARK: - Shadows (Soft, diffused, physical)
+    
+    enum Shadow {
+        static func floating(for layer: CALayer) {
+            layer.shadowColor = UIColor.black.cgColor
+            layer.shadowOffset = CGSize(width: 0, height: 2)
+            layer.shadowRadius = 10
+            layer.shadowOpacity = 0.05
+        }
+        
+        static func card(for layer: CALayer) {
+            layer.shadowColor = UIColor.black.cgColor
+            layer.shadowOffset = CGSize(width: 0, height: 1)
+            layer.shadowRadius = 4
+            layer.shadowOpacity = 0.04
+        }
     }
 }
 
@@ -101,32 +147,9 @@ extension UIColor {
     }
 }
 
-// MARK: - Gradient Layer Factory
+// MARK: - Minimalist Card View
 
-extension CAGradientLayer {
-    static func prismGradient(colors: [CGColor], horizontal: Bool = true) -> CAGradientLayer {
-        let layer = CAGradientLayer()
-        layer.colors = colors
-        if horizontal {
-            layer.startPoint = CGPoint(x: 0, y: 0.5)
-            layer.endPoint = CGPoint(x: 1, y: 0.5)
-        } else {
-            layer.startPoint = CGPoint(x: 0.5, y: 0)
-            layer.endPoint = CGPoint(x: 0.5, y: 1)
-        }
-        return layer
-    }
-}
-
-// MARK: - Glassmorphism View
-
-class GlassView: UIView {
-    
-    private let blurView: UIVisualEffectView = {
-        let blur = UIBlurEffect(style: .dark)
-        let view = UIVisualEffectView(effect: blur)
-        return view
-    }()
+class CardView: UIView {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -139,79 +162,96 @@ class GlassView: UIView {
     }
     
     private func setupView() {
-        backgroundColor = UIColor(white: 0.1, alpha: 0.6)
+        backgroundColor = PrismTheme.Colors.surface
         layer.cornerRadius = PrismTheme.Radius.large
         layer.borderWidth = 1
-        layer.borderColor = PrismTheme.Colors.borderLight.cgColor
-        clipsToBounds = true
+        layer.borderColor = PrismTheme.Colors.border.cgColor
         
-        insertSubview(blurView, at: 0)
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: topAnchor),
-            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            blurView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
+        // Subtle shadow
+        PrismTheme.Shadow.card(for: layer)
+        clipsToBounds = false
     }
 }
 
-// MARK: - Gradient Button
+// MARK: - Primary Button (Minimal)
 
-class GradientButton: UIButton {
-    
-    private let gradientLayer = CAGradientLayer()
+class PrimaryButton: UIButton {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setupGradient()
+        setupButton()
     }
     
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        setupGradient()
+        setupButton()
     }
     
-    private func setupGradient() {
-        gradientLayer.colors = PrismTheme.Colors.gradientCyan
-        gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
-        gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
-        gradientLayer.cornerRadius = PrismTheme.Radius.pill
-        layer.insertSublayer(gradientLayer, at: 0)
+    private func setupButton() {
+        backgroundColor = PrismTheme.Colors.textPrimary
+        setTitleColor(.white, for: .normal)
+        titleLabel?.font = PrismTheme.Fonts.headline
+        layer.cornerRadius = PrismTheme.Radius.medium
         
-        // Shadow
-        layer.shadowColor = PrismTheme.Colors.electricBlue.cgColor
-        layer.shadowOffset = CGSize(width: 0, height: 4)
-        layer.shadowRadius = 12
-        layer.shadowOpacity = 0.4
+        // Subtle shadow
+        PrismTheme.Shadow.floating(for: layer)
     }
     
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        gradientLayer.frame = bounds
-    }
-    
-    func setGradientColors(_ colors: [CGColor]) {
-        gradientLayer.colors = colors
+    override var isHighlighted: Bool {
+        didSet {
+            UIView.animate(withDuration: 0.15) {
+                self.alpha = self.isHighlighted ? 0.8 : 1.0
+                self.transform = self.isHighlighted 
+                    ? CGAffineTransform(scaleX: 0.98, y: 0.98) 
+                    : .identity
+            }
+        }
     }
 }
 
-// MARK: - Pulsing Border View
+// MARK: - Content Card View (for results/data display)
+
+class ContentCardView: UIView {
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupView()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupView()
+    }
+    
+    private func setupView() {
+        backgroundColor = PrismTheme.Colors.surface
+        layer.cornerRadius = PrismTheme.Radius.large
+        layer.borderWidth = 1
+        layer.borderColor = PrismTheme.Colors.border.cgColor
+        clipsToBounds = true
+    }
+}
+
+// MARK: - Scan Portal View (Minimal version)
 
 class PortalView: UIView {
-    
-    private let borderLayer = CAShapeLayer()
-    private var pulseAnimation: CABasicAnimation?
     
     var isAnimating: Bool = false {
         didSet {
             if isAnimating {
-                startPulse()
+                startIndicator()
             } else {
-                stopPulse()
+                stopIndicator()
             }
         }
     }
+    
+    private let activityIndicator: UIActivityIndicatorView = {
+        let indicator = UIActivityIndicatorView(style: .large)
+        indicator.color = PrismTheme.Colors.textSecondary
+        indicator.hidesWhenStopped = true
+        return indicator
+    }()
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -226,42 +266,37 @@ class PortalView: UIView {
     private func setupView() {
         backgroundColor = PrismTheme.Colors.surface
         layer.cornerRadius = PrismTheme.Radius.xl
+        layer.borderWidth = 1
+        layer.borderColor = PrismTheme.Colors.border.cgColor
+        
+        // Soft shadow
+        PrismTheme.Shadow.card(for: layer)
         clipsToBounds = false
         
-        // Border
-        layer.borderWidth = 1
-        layer.borderColor = PrismTheme.Colors.borderMedium.cgColor
-        
-        // Glow shadow
-        layer.shadowColor = PrismTheme.Colors.cyan.cgColor
-        layer.shadowOffset = .zero
-        layer.shadowRadius = 15
-        layer.shadowOpacity = 0.3
+        addSubview(activityIndicator)
+        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            activityIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+            activityIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
     }
     
-    private func startPulse() {
-        let animation = CABasicAnimation(keyPath: "shadowOpacity")
-        animation.fromValue = 0.3
-        animation.toValue = 0.7
-        animation.duration = 0.8
-        animation.autoreverses = true
-        animation.repeatCount = .infinity
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        layer.add(animation, forKey: "pulse")
-        
-        let borderAnimation = CABasicAnimation(keyPath: "borderColor")
-        borderAnimation.fromValue = PrismTheme.Colors.borderMedium.cgColor
-        borderAnimation.toValue = PrismTheme.Colors.cyan.cgColor
-        borderAnimation.duration = 0.8
-        borderAnimation.autoreverses = true
-        borderAnimation.repeatCount = .infinity
-        layer.add(borderAnimation, forKey: "borderPulse")
+    private func startIndicator() {
+        activityIndicator.startAnimating()
+        UIView.animate(withDuration: 0.3) {
+            self.layer.borderColor = PrismTheme.Colors.textSecondary.cgColor
+        }
     }
     
-    private func stopPulse() {
-        layer.removeAnimation(forKey: "pulse")
-        layer.removeAnimation(forKey: "borderPulse")
-        layer.shadowOpacity = 0.3
-        layer.borderColor = PrismTheme.Colors.borderMedium.cgColor
+    private func stopIndicator() {
+        activityIndicator.stopAnimating()
+        UIView.animate(withDuration: 0.3) {
+            self.layer.borderColor = PrismTheme.Colors.border.cgColor
+        }
     }
 }
+
+// MARK: - Legacy compatibility aliases
+
+typealias GlassView = ContentCardView
+typealias GradientButton = PrimaryButton

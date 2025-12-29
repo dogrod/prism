@@ -22,20 +22,22 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // Create the window
         let window = UIWindow(windowScene: windowScene)
         
-        // Create services
-        let ocrService = VisionOCRService()
-        let llmService = OpenAILLMService()
-        
-        // Create ViewModel and ViewController
-        let viewModel = CaptureViewModel(ocrService: ocrService, llmService: llmService)
-        let captureVC = CaptureViewController(viewModel: viewModel)
-        
-        // Embed in Navigation Controller
-        let navigationController = UINavigationController(rootViewController: captureVC)
-        navigationController.navigationBar.prefersLargeTitles = true
+        // Create root tab bar controller with iOS version check
+        let rootViewController: UITabBarController
+        if #available(iOS 26.0, *) {
+            // iOS 26: Native Floating Capsule Tab Bar with Liquid Glass
+            rootViewController = MainTabBarController()
+        } else {
+            // Fallback: Custom FloatingToolbar overlay
+            rootViewController = LegacyMainTabBarController()
+        }
         
         // Configure and present window
-        window.rootViewController = navigationController
+        window.rootViewController = rootViewController
+        
+        // Force Light Mode for consistent UI
+        window.overrideUserInterfaceStyle = .light
+        
         window.makeKeyAndVisible()
         
         self.window = window

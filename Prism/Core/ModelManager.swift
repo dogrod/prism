@@ -22,6 +22,9 @@ enum AIModel: String, CaseIterable {
         }
     }
     
+    /// Alias for displayName
+    var name: String { displayName }
+    
     var shortName: String {
         switch self {
         case .gpt5Nano: return "Nano ⚡"

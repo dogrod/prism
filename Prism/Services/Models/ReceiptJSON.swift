@@ -17,6 +17,7 @@ struct ReceiptJSON: Codable, Equatable {
     let currency: String? // ISO Code (e.g., "CAD", "USD")
     let total: Double?
     let tax: Double?
+    let tip: Double?  // Tip amount if present
     let payment: PaymentInfo?
     let items: [Item]?
     

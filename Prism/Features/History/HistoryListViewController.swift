@@ -245,7 +245,7 @@ final class HistoryCell: UITableViewCell {
     
     // MARK: - Configuration
     
-    func configure(with record: ScanRecord) {
+    func configure(with record: ScanHistoryRecord) {
         thumbnailImageView.image = record.originalImage
         merchantLabel.text = record.receiptData.merchant_name ?? "Unknown Merchant"
         dateLabel.text = record.formattedDate

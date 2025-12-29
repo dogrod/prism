@@ -42,6 +42,9 @@ final class CaptureViewModel: ObservableObject {
     @Published private(set) var selectedImage: UIImage?
     @Published private(set) var ocrText: String?
     
+    /// Published when a transaction is successfully saved - used for toast navigation
+    @Published private(set) var savedTransaction: Transaction?
+    
     // MARK: - Dependencies
     
     private let ocrService: OCRServiceProtocol
@@ -153,12 +156,57 @@ final class CaptureViewModel: ObservableObject {
             rawJSON = "Failed to encode JSON"
         }
         
-        let record = ScanRecord(
+        // Save to legacy in-memory history
+        let record = ScanHistoryRecord(
             originalImage: image,
             receiptData: receiptData,
             rawJSONString: rawJSON
         )
-        
         ScanHistoryManager.shared.add(record: record)
+        
+        // Save to Core Data via ScanProcessor
+        Task {
+            let result = await ScanProcessor.shared.process(
+                receipt: receiptData,
+                rawJSON: rawJSON,
+                image: image
+            )
+            
+            switch result {
+            case .success(let transaction):
+                print("✅ [CaptureVM] Transaction saved: \(transaction.id?.uuidString ?? "Unknown")")
+                print("   Merchant: \(transaction.merchant?.name ?? "Unknown")")
+                print("   Account: \(transaction.account?.name ?? "Unknown")")
+                print("   Amount: \(transaction.amount ?? 0) \(transaction.currency ?? "CAD")")
+                
+                // Publish for toast navigation
+                await MainActor.run {
+                    self.savedTransaction = transaction
+                }
+                
+            case .duplicateDetected(let existing):
+                print("⚠️ [CaptureVM] Duplicate detected - existing transaction from \(existing.date?.description ?? "unknown date")")
+                // Force add and publish
+                let forceResult = await ScanProcessor.shared.forceAddDuplicate(
+                    receipt: receiptData,
+                    rawJSON: rawJSON,
+                    image: image
+                )
+                if case .success(let transaction) = forceResult {
+                    print("✅ [CaptureVM] Duplicate added as new transaction: \(transaction.id?.uuidString ?? "Unknown")")
+                    await MainActor.run {
+                        self.savedTransaction = transaction
+                    }
+                }
+                
+            case .error(let error):
+                print("❌ [CaptureVM] Failed to save transaction: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// Clear the saved transaction after handling
+    func clearSavedTransaction() {
+        savedTransaction = nil
     }
 }

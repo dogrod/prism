@@ -7,9 +7,10 @@
 
 import UIKit
 
-// MARK: - Scan Record Model
+// MARK: - Scan History Record Model (In-memory only, for legacy compatibility)
+// Note: Core Data entity 'ScanRecord' is the persistent version
 
-struct ScanRecord: Identifiable {
+struct ScanHistoryRecord: Identifiable {
     let id: UUID
     let timestamp: Date
     let originalImage: UIImage
@@ -43,24 +44,18 @@ final class ScanHistoryManager {
     
     // MARK: - Properties
     
-    private(set) var records: [ScanRecord] = []
+    private(set) var records: [ScanHistoryRecord] = []
     
     private let maxRecords = 20
     
     // MARK: - Public Methods
     
     /// Add a new scan record to history (prepended to maintain newest-first order)
-    func add(record: ScanRecord) {
+    func add(record: ScanHistoryRecord) {
         print("📚 [ScanHistory] Adding record: \(record.receiptData.merchant_name ?? "Unknown")")
         
-        // Prepend new record
+        // Prepend new record (no limit - Core Data handles persistence)
         records.insert(record, at: 0)
-        
-        // Enforce max limit
-        if records.count > maxRecords {
-            records.removeLast()
-            print("📚 [ScanHistory] Removed oldest record (limit: \(maxRecords))")
-        }
         
         print("📚 [ScanHistory] Total records: \(records.count)")
     }
@@ -72,14 +67,14 @@ final class ScanHistoryManager {
     }
     
     /// Get record by ID
-    func record(withId id: UUID) -> ScanRecord? {
+    func record(withId id: UUID) -> ScanHistoryRecord? {
         return records.first { $0.id == id }
     }
 }
 
 // MARK: - Date Formatting Helpers
 
-extension ScanRecord {
+extension ScanHistoryRecord {
     
     var formattedDate: String {
         let formatter = DateFormatter()

@@ -11,7 +11,7 @@ final class RecordDetailViewController: UIViewController {
     
     // MARK: - Properties
     
-    private let record: ScanRecord
+    private let record: ScanHistoryRecord
     
     // MARK: - UI Components
     
@@ -63,7 +63,7 @@ final class RecordDetailViewController: UIViewController {
     
     // MARK: - Initialization
     
-    init(record: ScanRecord) {
+    init(record: ScanHistoryRecord) {
         self.record = record
         super.init(nibName: nil, bundle: nil)
     }

@@ -62,5 +62,7 @@
 	<string>Prism needs camera access to scan receipts</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Prism needs photo library access to select receipt images</string>
+	<key>UIUserInterfaceStyle</key>
+	<string>Light</string>
 </dict>
 </plist>

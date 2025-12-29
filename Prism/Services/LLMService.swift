@@ -130,6 +130,7 @@ final class OpenAILLMService: LLMServiceProtocol {
           "currency": "String (ISO) or null",
           "total": Number or null,
           "tax": Number or null,
+          "tip": Number or null,
           "payment": {
             "type": "String or null",
             "last4": "String or null"

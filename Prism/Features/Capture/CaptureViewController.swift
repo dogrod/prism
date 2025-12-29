@@ -26,11 +26,10 @@ final class CaptureViewController: UIViewController {
     private let ambientGradientLayer: CAGradientLayer = {
         let layer = CAGradientLayer()
         layer.colors = [
-            PrismTheme.Colors.cyan.withAlphaComponent(0.4).cgColor,
-            PrismTheme.Colors.purple.withAlphaComponent(0.2).cgColor,
+            PrismTheme.Colors.textSecondary.withAlphaComponent(0.1).cgColor,
             UIColor.clear.cgColor
         ]
-        layer.locations = [0, 0.5, 1]
+        layer.locations = [0, 1]
         layer.startPoint = CGPoint(x: 0, y: 0)
         layer.endPoint = CGPoint(x: 1, y: 1)
         return layer
@@ -64,7 +63,7 @@ final class CaptureViewController: UIViewController {
         config.imagePadding = 6
         config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
         config.baseForegroundColor = PrismTheme.Colors.textPrimary
-        config.baseBackgroundColor = PrismTheme.Colors.surfaceLight
+        config.baseBackgroundColor = PrismTheme.Colors.surfaceElevated
         config.cornerStyle = .capsule
         config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 12)
         
@@ -114,7 +113,15 @@ final class CaptureViewController: UIViewController {
         return label
     }()
     
-    // Status
+    // Status - use horizontal StackView for centered spinner + label
+    private lazy var statusStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        return stack
+    }()
+    
     private lazy var statusLabel: UILabel = {
         let label = UILabel()
         label.font = PrismTheme.Fonts.body
@@ -127,7 +134,7 @@ final class CaptureViewController: UIViewController {
     private lazy var activityIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
         indicator.hidesWhenStopped = true
-        indicator.color = PrismTheme.Colors.cyan
+        indicator.color = PrismTheme.Colors.accent
         return indicator
     }()
     
@@ -171,7 +178,7 @@ final class CaptureViewController: UIViewController {
         let label = UILabel()
         label.text = "ANALYSIS RESULT"
         label.font = PrismTheme.Fonts.caption
-        label.textColor = PrismTheme.Colors.cyan
+        label.textColor = PrismTheme.Colors.accent
         
         let attributedString = NSMutableAttributedString(string: "ANALYSIS RESULT")
         attributedString.addAttribute(.kern, value: 1.5, range: NSRange(location: 0, length: 15))
@@ -184,7 +191,7 @@ final class CaptureViewController: UIViewController {
         textView.font = PrismTheme.Fonts.mono
         textView.backgroundColor = .clear
         textView.isEditable = false
-        textView.textColor = PrismTheme.Colors.neonGreen
+        textView.textColor = PrismTheme.Colors.success
         textView.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
         return textView
     }()
@@ -236,9 +243,10 @@ final class CaptureViewController: UIViewController {
         portalView.addSubview(portalHintLabel)
         view.addSubview(portalView)
         
-        // Status area
-        view.addSubview(statusLabel)
-        view.addSubview(activityIndicator)
+        // Status area - use centered StackView
+        statusStack.addArrangedSubview(activityIndicator)
+        statusStack.addArrangedSubview(statusLabel)
+        view.addSubview(statusStack)
         
         // Action buttons
         view.addSubview(scanButton)
@@ -251,16 +259,16 @@ final class CaptureViewController: UIViewController {
     }
     
     private func setupConstraints() {
-        let padding = PrismTheme.Spacing.md
+        let padding = PrismTheme.Spacing.lg  // Increased padding for Zen spacing
         let safeArea = view.safeAreaLayoutGuide
+        let bottomInset: CGFloat = 100  // Space for floating tab bar
         
         ambientGradientView.enableAutoLayout()
         customNavBar.enableAutoLayout()
         portalView.enableAutoLayout()
         receiptImageView.enableAutoLayout()
         portalHintLabel.enableAutoLayout()
-        statusLabel.enableAutoLayout()
-        activityIndicator.enableAutoLayout()
+        statusStack.enableAutoLayout()
         scanButton.enableAutoLayout()
         resetButton.enableAutoLayout()
         resultCard.enableAutoLayout()
@@ -268,68 +276,63 @@ final class CaptureViewController: UIViewController {
         resultTextView.enableAutoLayout()
         
         NSLayoutConstraint.activate([
-            // Ambient gradient
+            // Ambient gradient (subtle, no changes needed)
             ambientGradientView.topAnchor.constraint(equalTo: view.topAnchor),
             ambientGradientView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             ambientGradientView.widthAnchor.constraint(equalToConstant: 400),
             ambientGradientView.heightAnchor.constraint(equalToConstant: 400),
             
-            // Custom nav bar
-            customNavBar.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: padding),
+            // Custom nav bar - generous top spacing
+            customNavBar.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: PrismTheme.Spacing.md),
             customNavBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
             customNavBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
             customNavBar.heightAnchor.constraint(equalToConstant: 44),
             
-            // Portal
-            portalView.topAnchor.constraint(equalTo: customNavBar.bottomAnchor, constant: PrismTheme.Spacing.lg),
+            // Portal - more vertical spacing, centered feel
+            portalView.topAnchor.constraint(equalTo: customNavBar.bottomAnchor, constant: PrismTheme.Spacing.xl),
             portalView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
             portalView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
-            portalView.heightAnchor.constraint(equalToConstant: 280),
+            portalView.heightAnchor.constraint(equalToConstant: 240),  // Slightly smaller for balance
             
-            // Image inside portal
-            receiptImageView.topAnchor.constraint(equalTo: portalView.topAnchor, constant: 12),
-            receiptImageView.leadingAnchor.constraint(equalTo: portalView.leadingAnchor, constant: 12),
-            receiptImageView.trailingAnchor.constraint(equalTo: portalView.trailingAnchor, constant: -12),
-            receiptImageView.bottomAnchor.constraint(equalTo: portalHintLabel.topAnchor, constant: -8),
+            // Image inside portal - more centered with larger insets
+            receiptImageView.topAnchor.constraint(equalTo: portalView.topAnchor, constant: PrismTheme.Spacing.lg),
+            receiptImageView.leadingAnchor.constraint(equalTo: portalView.leadingAnchor, constant: PrismTheme.Spacing.lg),
+            receiptImageView.trailingAnchor.constraint(equalTo: portalView.trailingAnchor, constant: -PrismTheme.Spacing.lg),
+            receiptImageView.bottomAnchor.constraint(equalTo: portalHintLabel.topAnchor, constant: -PrismTheme.Spacing.md),
             
-            // Portal hint
-            portalHintLabel.bottomAnchor.constraint(equalTo: portalView.bottomAnchor, constant: -16),
+            // Portal hint - more bottom padding
+            portalHintLabel.bottomAnchor.constraint(equalTo: portalView.bottomAnchor, constant: -PrismTheme.Spacing.lg),
             portalHintLabel.centerXAnchor.constraint(equalTo: portalView.centerXAnchor),
             
-            // Status
-            statusLabel.topAnchor.constraint(equalTo: portalView.bottomAnchor, constant: PrismTheme.Spacing.lg),
-            statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
-            statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
+            // Status StackView - centered horizontally with proper spacing
+            statusStack.topAnchor.constraint(equalTo: portalView.bottomAnchor, constant: PrismTheme.Spacing.xl),
+            statusStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             
-            // Activity indicator
-            activityIndicator.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
-            activityIndicator.trailingAnchor.constraint(equalTo: statusLabel.leadingAnchor, constant: -8),
-            
-            // Scan button
-            scanButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: PrismTheme.Spacing.lg),
+            // Scan button - generous spacing
+            scanButton.topAnchor.constraint(equalTo: statusStack.bottomAnchor, constant: PrismTheme.Spacing.xl),
             scanButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
             scanButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
-            scanButton.heightAnchor.constraint(equalToConstant: 56),
+            scanButton.heightAnchor.constraint(equalToConstant: 52),  // Slightly smaller, more refined
             
             // Reset button
-            resetButton.topAnchor.constraint(equalTo: scanButton.bottomAnchor, constant: PrismTheme.Spacing.sm),
+            resetButton.topAnchor.constraint(equalTo: scanButton.bottomAnchor, constant: PrismTheme.Spacing.md),
             resetButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             
-            // Result card
-            resultCard.topAnchor.constraint(equalTo: resetButton.bottomAnchor, constant: PrismTheme.Spacing.md),
+            // Result card - account for floating tab bar
+            resultCard.topAnchor.constraint(equalTo: resetButton.bottomAnchor, constant: PrismTheme.Spacing.lg),
             resultCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
             resultCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
-            resultCard.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor, constant: -padding),
+            resultCard.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor, constant: -bottomInset),
             
             // Result title
-            resultTitleLabel.topAnchor.constraint(equalTo: resultCard.topAnchor, constant: 16),
-            resultTitleLabel.leadingAnchor.constraint(equalTo: resultCard.leadingAnchor, constant: 16),
+            resultTitleLabel.topAnchor.constraint(equalTo: resultCard.topAnchor, constant: PrismTheme.Spacing.md),
+            resultTitleLabel.leadingAnchor.constraint(equalTo: resultCard.leadingAnchor, constant: PrismTheme.Spacing.md),
             
             // Result text
-            resultTextView.topAnchor.constraint(equalTo: resultTitleLabel.bottomAnchor, constant: 8),
-            resultTextView.leadingAnchor.constraint(equalTo: resultCard.leadingAnchor, constant: 8),
-            resultTextView.trailingAnchor.constraint(equalTo: resultCard.trailingAnchor, constant: -8),
-            resultTextView.bottomAnchor.constraint(equalTo: resultCard.bottomAnchor, constant: -8)
+            resultTextView.topAnchor.constraint(equalTo: resultTitleLabel.bottomAnchor, constant: PrismTheme.Spacing.sm),
+            resultTextView.leadingAnchor.constraint(equalTo: resultCard.leadingAnchor, constant: PrismTheme.Spacing.sm),
+            resultTextView.trailingAnchor.constraint(equalTo: resultCard.trailingAnchor, constant: -PrismTheme.Spacing.sm),
+            resultTextView.bottomAnchor.constraint(equalTo: resultCard.bottomAnchor, constant: -PrismTheme.Spacing.sm)
         ])
     }
     
@@ -351,6 +354,59 @@ final class CaptureViewController: UIViewController {
                 }
             }
             .store(in: &cancellables)
+        
+        // Listen for saved transactions to show ZenToast
+        viewModel.$savedTransaction
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] transaction in
+                self?.showSavedToast(for: transaction)
+            }
+            .store(in: &cancellables)
+    }
+    
+    private var currentToast: ZenToast?
+    
+    private func showSavedToast(for transaction: Transaction) {
+        // Clear any existing toast
+        currentToast?.removeFromSuperview()
+        
+        let toast = ZenToast()
+        currentToast = toast
+        
+        toast.onViewTapped = { [weak self] in
+            self?.navigateToTransaction(transaction)
+        }
+        
+        // Show toast above tab bar
+        toast.show(in: view, bottomOffset: 140, duration: 4.0)
+        
+        // Clear saved transaction after toast is shown
+        viewModel.clearSavedTransaction()
+    }
+    
+    private func navigateToTransaction(_ transaction: Transaction) {
+        // Hide toast
+        currentToast?.hide()
+        
+        // Dismiss capture modal
+        dismiss(animated: true) {
+            // Navigate to transaction detail
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let window = windowScene.windows.first,
+                  let tabBarController = window.rootViewController as? UITabBarController else {
+                return
+            }
+            
+            // Switch to Transactions tab (index 0)
+            tabBarController.selectedIndex = 0
+            
+            // Get the transactions navigation controller and push detail
+            if let navController = tabBarController.viewControllers?.first as? UINavigationController {
+                let detailVC = TransactionDetailViewController(transaction: transaction)
+                navController.pushViewController(detailVC, animated: true)
+            }
+        }
     }
     
     private func setupGestures() {
@@ -405,12 +461,12 @@ final class CaptureViewController: UIViewController {
             scanButton.isEnabled = false
             portalView.isAnimating = true
             statusLabel.text = "Scanning receipt..."
-            statusLabel.textColor = PrismTheme.Colors.cyan
+            statusLabel.textColor = PrismTheme.Colors.accent
             hideResultCard()
             
         case .analyzing:
             statusLabel.text = "Analyzing with AI..."
-            statusLabel.textColor = PrismTheme.Colors.purple
+            statusLabel.textColor = PrismTheme.Colors.accentSubtle
             
         case .success:
             activityIndicator.stopAnimating()
