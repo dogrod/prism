@@ -71,17 +71,29 @@ final class TransactionsViewController: BaseViewController {
         return view
     }()
     
+    // MARK: - Init
+    
+    init() {
+        super.init(nibName: nil, bundle: nil)
+        // Set title at init-time to prevent lazy title animation issues
+        self.title = "Transactions"
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
     // MARK: - Lifecycle
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Transactions"
         setupUI()
         setupFetchedResultsController()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
         // Refresh on appear
         try? fetchedResultsController.performFetch()
         tableView.reloadData()
@@ -321,6 +333,15 @@ final class TransactionCell: UITableViewCell {
         return label
     }()
     
+    private let duplicateWarningIcon: UIImageView = {
+        let imageView = UIImageView()
+        imageView.image = UIImage(systemName: "exclamationmark.triangle.fill")
+        imageView.tintColor = .systemYellow
+        imageView.contentMode = .scaleAspectFit
+        imageView.isHidden = true
+        return imageView
+    }()
+    
     // MARK: - Init
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -342,6 +363,7 @@ final class TransactionCell: UITableViewCell {
         contentView.addSubview(merchantIconView)
         contentView.addSubview(merchantLabel)
         contentView.addSubview(categoryLabel)
+        contentView.addSubview(duplicateWarningIcon)
         contentView.addSubview(amountLabel)
         
         merchantIconView.enableAutoLayout()
@@ -349,6 +371,7 @@ final class TransactionCell: UITableViewCell {
         merchantLabel.enableAutoLayout()
         categoryLabel.enableAutoLayout()
         amountLabel.enableAutoLayout()
+        duplicateWarningIcon.enableAutoLayout()
         
         NSLayoutConstraint.activate([
             // Icon circle
@@ -374,7 +397,13 @@ final class TransactionCell: UITableViewCell {
             // Amount
             amountLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
             amountLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            amountLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 70)
+            amountLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 70),
+            
+            // Duplicate warning icon
+            duplicateWarningIcon.trailingAnchor.constraint(equalTo: amountLabel.leadingAnchor, constant: -4),
+            duplicateWarningIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            duplicateWarningIcon.widthAnchor.constraint(equalToConstant: 18),
+            duplicateWarningIcon.heightAnchor.constraint(equalToConstant: 18)
         ])
     }
     
@@ -401,6 +430,9 @@ final class TransactionCell: UITableViewCell {
         let amount = transaction.amount?.doubleValue ?? 0
         let currency = transaction.currency ?? "CAD"
         amountLabel.text = formatCurrency(amount: amount, currency: currency)
+        
+        // Duplicate warning
+        duplicateWarningIcon.isHidden = transaction.duplicateOfTransactionID == nil
     }
     
     private func formatCurrency(amount: Double, currency: String) -> String {

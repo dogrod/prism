@@ -16,6 +16,10 @@ final class TransactionDetailViewController: BaseViewController {
     private let transaction: Transaction
     private var isRegenerating = false
     
+    // Constraint references for animation
+    private var bannerHeightConstraint: NSLayoutConstraint?
+    private var receiptTopConstraint: NSLayoutConstraint?
+    
     // MARK: - UI Components
     
     private let scrollView: UIScrollView = {
@@ -50,6 +54,38 @@ final class TransactionDetailViewController: BaseViewController {
             spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -20),
             label.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 12),
             label.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+        ])
+        
+        return view
+    }()
+    
+    private lazy var duplicateBanner: UIView = {
+        let view = UIView()
+        view.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.15)
+        view.layer.cornerRadius = 8
+        view.isHidden = true
+        
+        let icon = UIImageView(image: UIImage(systemName: "exclamationmark.triangle.fill"))
+        icon.tintColor = .systemYellow
+        icon.contentMode = .scaleAspectFit
+        
+        let label = UILabel()
+        label.text = "Possible Duplicate"
+        label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        label.textColor = UIColor(hex: "#7A6A00")  // Dark yellow/amber text
+        
+        let stack = UIStackView(arrangedSubviews: [icon, label])
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        
+        view.addSubview(stack)
+        stack.enableAutoLayout()
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 18),
+            icon.heightAnchor.constraint(equalToConstant: 18)
         ])
         
         return view
@@ -108,6 +144,19 @@ final class TransactionDetailViewController: BaseViewController {
         // Check if regeneration is available (has image)
         let canRegenerate = transaction.scanRecord?.imagePath != nil
         
+        var actions: [UIAction] = []
+        
+        // Mark as Not Duplicate action (only if it's a duplicate)
+        if transaction.duplicateOfTransactionID != nil {
+            let notDuplicateAction = UIAction(
+                title: "Mark as Not Duplicate",
+                image: UIImage(systemName: "checkmark.circle")
+            ) { [weak self] _ in
+                self?.markAsNotDuplicate()
+            }
+            actions.append(notDuplicateAction)
+        }
+        
         let regenerateAction = UIAction(
             title: "Regenerate info...",
             image: UIImage(systemName: "sparkles"),
@@ -115,6 +164,7 @@ final class TransactionDetailViewController: BaseViewController {
         ) { [weak self] _ in
             self?.showModelPicker()
         }
+        actions.append(regenerateAction)
         
         let editAction = UIAction(
             title: "Edit",
@@ -122,6 +172,7 @@ final class TransactionDetailViewController: BaseViewController {
         ) { [weak self] _ in
             self?.showEditAlert()
         }
+        actions.append(editAction)
         
         let deleteAction = UIAction(
             title: "Delete",
@@ -130,8 +181,9 @@ final class TransactionDetailViewController: BaseViewController {
         ) { [weak self] _ in
             self?.confirmDelete()
         }
+        actions.append(deleteAction)
         
-        return UIMenu(children: [regenerateAction, editAction, deleteAction])
+        return UIMenu(children: actions)
     }
     
     private func setupUI() {
@@ -139,12 +191,25 @@ final class TransactionDetailViewController: BaseViewController {
         view.backgroundColor = .systemGray6
         
         view.addSubview(scrollView)
+        scrollView.addSubview(duplicateBanner)
         scrollView.addSubview(receiptView)
         view.addSubview(loadingOverlay)
         
         scrollView.enableAutoLayout()
+        duplicateBanner.enableAutoLayout()
         receiptView.enableAutoLayout()
         loadingOverlay.enableAutoLayout()
+        
+        // Show banner if duplicate
+        let isDuplicate = transaction.duplicateOfTransactionID != nil
+        duplicateBanner.isHidden = !isDuplicate
+        
+        let bannerHeight: CGFloat = isDuplicate ? 40 : 0
+        let topPadding: CGFloat = isDuplicate ? 12 : 24
+        
+        // Store constraint references for animation
+        bannerHeightConstraint = duplicateBanner.heightAnchor.constraint(equalToConstant: bannerHeight)
+        receiptTopConstraint = receiptView.topAnchor.constraint(equalTo: duplicateBanner.bottomAnchor, constant: topPadding)
         
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -152,7 +217,15 @@ final class TransactionDetailViewController: BaseViewController {
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             
-            receiptView.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 24),
+            // Duplicate banner at top
+            duplicateBanner.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 16),
+            duplicateBanner.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: 24),
+            duplicateBanner.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -24),
+            duplicateBanner.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -48),
+            bannerHeightConstraint!,
+            
+            // Receipt below banner
+            receiptTopConstraint!,
             receiptView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: 24),
             receiptView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -24),
             receiptView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -24),
@@ -274,6 +347,40 @@ final class TransactionDetailViewController: BaseViewController {
         do {
             try context.save()
             navigationController?.popViewController(animated: true)
+        } catch {
+            showError(error)
+        }
+    }
+    
+    private func markAsNotDuplicate() {
+        // Clear the duplicate link
+        transaction.duplicateOfTransactionID = nil
+        
+        let context = PersistenceController.shared.container.viewContext
+        do {
+            try context.save()
+            
+            // Animate both alpha and layout change
+            UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseInOut) {
+                // Fade out banner
+                self.duplicateBanner.alpha = 0
+                
+                // Collapse banner height to 0
+                self.bannerHeightConstraint?.constant = 0
+                
+                // Reduce spacing since banner is gone
+                self.receiptTopConstraint?.constant = 8  // Smaller gap when no banner
+                
+                // Force layout update inside animation block for smooth transition
+                self.view.layoutIfNeeded()
+            } completion: { _ in
+                self.duplicateBanner.isHidden = true
+            }
+            
+            // Update the menu to remove the action
+            navigationItem.rightBarButtonItem?.menu = createOptionsMenu()
+            
+            print("✅ [TransactionDetail] Marked transaction as not duplicate")
         } catch {
             showError(error)
         }

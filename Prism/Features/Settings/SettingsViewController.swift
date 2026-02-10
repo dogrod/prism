@@ -52,16 +52,28 @@ final class SettingsViewController: BaseViewController {
         return table
     }()
     
+    // MARK: - Init
+    
+    init() {
+        super.init(nibName: nil, bundle: nil)
+        // Set title at init-time to prevent lazy title animation issues
+        self.title = "Settings"
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
     // MARK: - Lifecycle
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Settings"
         setupUI()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
         tableView.reloadData()
     }
     

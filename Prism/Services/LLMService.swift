@@ -85,54 +85,59 @@ final class OpenAILLMService: LLMServiceProtocol {
         let categoriesString = userCategories.joined(separator: ", ")
         
         let systemPrompt = """
-        You are an expert Receipt Parser & Financial Analyst API.
+        Role: Receipt Parser AI.
+        Task: Analyze the OCR text to extract transaction details.
 
-        **Objective:**
-        Extract structured data from the provided raw OCR text of a receipt.
-        Output the result in STRICT JSON format matching the schema defined below.
+        **Step 1: MVR (Minimum Viable Receipt) Validation**
+        Analyze the input text/image. To be considered a valid receipt, it MUST contain:
+        1. A discernible **Total Amount** (Price).
+        2. AND at least one of: A **Merchant Name** OR a **Date**.
+        If these conditions are NOT met, set `"is_valid": false` and stop extraction.
 
-        **Allowed Categories:** \(categoriesString)
-
-        **Instructions:**
+        **Step 2: Data Extraction (Only if Valid)**
+        If the input is a valid receipt, extract the following details:
 
         1. **Merchant Details:**
-           - Extract the `merchant_name`.
-           - Extract the full `merchant_address` if visible.
+        - `merchant_name`: Normalize the name (e.g., "T&T Supermarket #002" -> "T&T Supermarket").
+        - `merchant_address`: Full address if visible.
 
         2. **Date & Time:**
-           - Format `date` as `YYYY-MM-DD`. If the year is missing, assume the current year.
-           - Format `time` as `HH:mm` (24-hour format).
+        - `date`: Format as `YYYY-MM-DD`. If year is missing, assume current year (\(Calendar.current.component(.year, from: Date()))).
+        - `time`: Format as `HH:mm` (24-hour).
 
         3. **Currency Logic:**
-           - Infer the `currency` ISO code (e.g., "CAD", "USD", "CNY", "EUR") based on:
-               - Currency symbols ($, £, €).
-               - The country/region found in the address or phone number area code.
-           - If the currency cannot be determined with certainty, return null.
+        - Infer ISO code (e.g., "CAD", "USD") based on symbols ($, £) or address/phone locale.
+        - Default to "CAD" if ambiguous but looks like North America.
 
         4. **Financials:**
-           - Extract `total` amount and `tax` amount.
-           - Extract `payment` information:
-               - `type`: "Visa", "Amex", "Debit", "Cash", etc.
-               - `last4`: The last 4 digits of the card number.
+        - `total`: Final amount paid.
+        - `tax`: Total tax amount.
+        - `tip`: Tip amount if present.
+        - `payment`: Extract type (Visa/Amex/Debit/Cash) and `last4` digits.
 
         5. **Line Items & Categorization:**
-           - Extract individual items into the `items` array.
-           - For each item, assign a `category` ONLY from the Allowed Categories list.
-           - If an item does not fit any provided category, use "Uncategorized".
-           - Do not list "Total" or "Tax" as items.
+        - Extract items into the `items` array.
+        - Assign `category` ONLY from the **Allowed Categories** list above.
+        - If unsure, use "Other". Do not use "Uncategorized".
+        - Do not list "Total", "Subtotal", or "Tax" as items.
 
-        **JSON Schema:**
+        **Step 3: JSON Output**
+        Return a JSON object.
+
+        **JSON Schema for Valid Receipt (Strict Output):**
+
         {
-          "merchant_name": "String or null",
+          "is_valid": true,
+          "merchant_name": "String (Normalized) or null",
           "merchant_address": "String or null",
           "date": "YYYY-MM-DD or null",
           "time": "HH:mm or null",
-          "currency": "String (ISO) or null",
-          "total": Number or null,
+          "currency": "String (e.g. CAD, USD, EUR) or null",
+          "total": Number,
           "tax": Number or null,
           "tip": Number or null,
           "payment": {
-            "type": "String or null",
+            "type": "String (e.g. Visa, MasterCard, Cash) or null",
             "last4": "String or null"
           },
           "items": [
@@ -140,12 +145,18 @@ final class OpenAILLMService: LLMServiceProtocol {
               "name": "String",
               "price": Number,
               "quantity": Integer (default 1),
-              "category": "String (Must match Allowed Categories)"
+              "category": "String (from: \(categoriesString))"
             }
           ]
         }
 
-        Return ONLY the raw JSON object. Do not wrap in markdown blocks. Do not add conversational text.
+        **JSON Schema for Invalid Receipt (Strict Output):**
+        {
+          "is_valid": false,
+          "error_reason": "Brief explanation (e.g. 'No total amount found', 'Not a receipt')"
+        }
+
+        CRITICAL: Return ONLY raw JSON. No markdown formatting. No conversational text.
         """
         
         let userPrompt = "Parse this receipt:\n\n\(ocrText)"
@@ -221,8 +232,25 @@ final class OpenAILLMService: LLMServiceProtocol {
         
         do {
             let receiptJSON = try decoder.decode(ReceiptJSON.self, from: contentData)
+            
+            // MVR Validation: Check if is_valid is explicitly false
+            if receiptJSON.is_valid == false {
+                let errorReason = receiptJSON.error_reason ?? "Not a valid receipt"
+                print("❌ [LLMService] MVR Validation Failed: \(errorReason)")
+                throw ReceiptError.notAReceipt(errorReason)
+            }
+            
+            // Legacy fallback: If is_valid is missing (nil), check for total
+            if receiptJSON.is_valid == nil && receiptJSON.total == nil {
+                print("❌ [LLMService] Legacy validation failed: Missing total amount")
+                throw ReceiptError.missingTotal
+            }
+            
             print("✅ [LLMService] Successfully decoded ReceiptJSON with \(receiptJSON.items?.count ?? 0) items")
             return receiptJSON
+        } catch let error as ReceiptError {
+            // Re-throw ReceiptErrors directly
+            throw error
         } catch {
             print("❌ [LLMService] Failed to decode ReceiptJSON: \(error)")
             print("❌ [LLMService] Content was: \(content)")

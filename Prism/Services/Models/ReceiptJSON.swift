@@ -10,6 +10,11 @@ import Foundation
 // MARK: - Receipt JSON Response Model
 
 struct ReceiptJSON: Codable, Equatable {
+    // MVR Validation fields
+    let is_valid: Bool?
+    let error_reason: String?
+    
+    // Receipt data fields
     let merchant_name: String?
     let merchant_address: String?
     let date: String? // Format: YYYY-MM-DD
@@ -35,6 +40,25 @@ struct ReceiptJSON: Codable, Equatable {
         let price: Double
         let category: String // Dynamic category from the provided list
         let quantity: Int?
+    }
+}
+
+// MARK: - Receipt Error
+
+enum ReceiptError: LocalizedError {
+    case notAReceipt(String)
+    case invalidData(String)
+    case missingTotal
+    
+    var errorDescription: String? {
+        switch self {
+        case .notAReceipt(let reason):
+            return "Not a valid receipt: \(reason)"
+        case .invalidData(let reason):
+            return "Invalid receipt data: \(reason)"
+        case .missingTotal:
+            return "Receipt must have a total amount"
+        }
     }
 }
 

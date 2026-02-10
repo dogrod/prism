@@ -13,7 +13,6 @@ import UIKit
 
 enum ScanProcessorResult {
     case success(Transaction)
-    case duplicateDetected(existing: Transaction)
     case error(Error)
 }
 
@@ -83,23 +82,28 @@ final class ScanProcessor {
                 throw ScanProcessorError.invalidData("Missing date or amount")
             }
             
-            // Step C: Duplicate Detection
-            if let existingTransaction = findDuplicate(merchant: merchant, date: date, amount: amount) {
-                print("⚠️ [ScanProcessor] Duplicate detected!")
-                return .duplicateDetected(existing: existingTransaction)
+            // Step C: Optimistic Duplicate Detection
+            // Find potential duplicate (same merchant, amount, date within 24 hours)
+            let potentialDuplicate = findDuplicate(merchant: merchant, date: date, amount: amount)
+            if potentialDuplicate != nil {
+                print("⚠️ [ScanProcessor] Potential duplicate detected - will save with link")
             }
             
-            // Step D: Save Transaction
+            // Step D: Save Transaction (always save, link if duplicate)
             let transaction = try saveTransaction(
                 receipt: receipt,
                 account: account,
                 merchant: merchant,
                 date: date,
                 rawJSON: rawJSON,
-                image: image
+                image: image,
+                duplicateOf: potentialDuplicate
             )
             
             print("✅ [ScanProcessor] Transaction saved: \(transaction.id?.uuidString ?? "Unknown")")
+            if potentialDuplicate != nil {
+                print("⚠️ [ScanProcessor] Marked as potential duplicate of: \(potentialDuplicate?.id?.uuidString ?? "Unknown")")
+            }
             return .success(transaction)
             
         } catch {
@@ -185,21 +189,22 @@ final class ScanProcessor {
         return .other
     }
     
-    // MARK: - Step C: Duplicate Detection
+    // MARK: - Step C: Optimistic Duplicate Detection
     
+    /// Find potential duplicate transaction within 24 hours window
     private func findDuplicate(merchant: Merchant, date: Date, amount: Double) -> Transaction? {
         let fetchRequest: NSFetchRequest<Transaction> = Transaction.fetchRequest()
         
-        // Match on same day (ignoring time)
+        // Match within 24 hours window (not just same day)
         let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: date)
-        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        let startWindow = calendar.date(byAdding: .hour, value: -24, to: date)!
+        let endWindow = calendar.date(byAdding: .hour, value: 24, to: date)!
         
         fetchRequest.predicate = NSPredicate(
             format: "merchant == %@ AND date >= %@ AND date < %@ AND amount == %@",
             merchant,
-            startOfDay as NSDate,
-            endOfDay as NSDate,
+            startWindow as NSDate,
+            endWindow as NSDate,
             NSDecimalNumber(value: amount)
         )
         fetchRequest.fetchLimit = 1
@@ -215,7 +220,8 @@ final class ScanProcessor {
         merchant: Merchant,
         date: Date,
         rawJSON: String,
-        image: UIImage
+        image: UIImage,
+        duplicateOf: Transaction? = nil
     ) throws -> Transaction {
         // Save image to documents directory
         let imagePath = try saveImage(image)
@@ -236,6 +242,11 @@ final class ScanProcessor {
         transaction.tip = receipt.tip.map { NSDecimalNumber(value: $0) }
         transaction.currency = receipt.currency ?? "CAD"
         transaction.isVerified = true
+        
+        // Link to potential duplicate if found
+        if let originalTransaction = duplicateOf {
+            transaction.duplicateOfTransactionID = originalTransaction.id
+        }
         
         // Serialize items as JSON blob
         if let items = receipt.items {

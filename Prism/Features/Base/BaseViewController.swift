@@ -36,6 +36,23 @@ class BaseViewController: UIViewController {
     func forceApplyNavigationBarStyle() {
         guard let navigationController = navigationController else { return }
         
+        // Preserve existing title - only fallback to tabBarItem if truly empty
+        // Note: self.title and navigationItem.title are synced, but check both for safety
+        let currentTitle = navigationItem.title ?? self.title
+        if currentTitle?.isEmpty ?? true {
+            // Try tabBarItem as fallback (works for non-nav-wrapped VCs)
+            if let tabTitle = tabBarItem.title, !tabTitle.isEmpty {
+                navigationItem.title = tabTitle
+            }
+        }
+        
+        // iOS 26: largeTitle is now a SEPARATE property from title
+        // Must explicitly set both for large titles to display correctly after tab switches
+        if #available(iOS 26.0, *) {
+            let titleToUse = navigationItem.title ?? self.title ?? ""
+            navigationItem.largeTitle = titleToUse
+        }
+        
         // Enable large titles
         navigationController.navigationBar.prefersLargeTitles = true
         navigationItem.largeTitleDisplayMode = .always

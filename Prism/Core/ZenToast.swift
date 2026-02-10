@@ -36,21 +36,21 @@ final class ZenToast: UIView {
         let label = UILabel()
         label.text = "Receipt Saved"
         label.font = UIFont.systemFont(ofSize: 15, weight: .medium)
-        label.textColor = .white
+        label.textColor = UIColor(hex: "#333333")  // Dark grey for contrast
         return label
     }()
     
     private lazy var viewButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.title = "View"
-        config.baseForegroundColor = PrismTheme.Colors.accent
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
-            var attributes = attributes
-            attributes.font = UIFont.systemFont(ofSize: 15, weight: .bold)
-            return attributes
-        }
+        // Create underlined attributed string
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15, weight: .medium),
+            .foregroundColor: UIColor.systemGray,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
+        let attributedTitle = NSAttributedString(string: "View", attributes: attributes)
         
-        let button = UIButton(configuration: config)
+        let button = UIButton(type: .system)
+        button.setAttributedTitle(attributedTitle, for: .normal)
         button.addTarget(self, action: #selector(viewButtonTapped), for: .touchUpInside)
         return button
     }()
@@ -69,13 +69,13 @@ final class ZenToast: UIView {
     // MARK: - Setup
     
     private func setupUI() {
-        // Capsule background
-        backgroundColor = .label
+        // White capsule background
+        backgroundColor = UIColor(hex: "#F7F7F5")  // Off-white
         layer.cornerRadius = 25
         
-        // Shadow
+        // Soft shadow for visibility against UI
         layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.2
+        layer.shadowOpacity = 0.1
         layer.shadowRadius = 10
         layer.shadowOffset = CGSize(width: 0, height: 4)
         

@@ -7,6 +7,19 @@
 
 import UIKit
 import Combine
+import AVFoundation
+import PhotosUI
+
+// MARK: - Capture UI State
+
+enum CaptureUIState {
+    case idle
+    case processing
+    case success(Transaction)
+    case failure(String)
+}
+
+// MARK: - Capture View Controller
 
 final class CaptureViewController: UIViewController {
     
@@ -15,27 +28,28 @@ final class CaptureViewController: UIViewController {
     private let viewModel: CaptureViewModel
     private var cancellables = Set<AnyCancellable>()
     
-    // MARK: - UI Components
+    // MARK: - Camera Properties
     
-    private lazy var ambientGradientView: UIView = {
-        let view = UIView()
-        view.alpha = 0.6
-        return view
-    }()
+    private let captureSession = AVCaptureSession()
+    private var photoOutput: AVCapturePhotoOutput?
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    private let sessionQueue = DispatchQueue(label: "com.prism.camera.session")
+    private var cameraPermissionGranted = false
     
-    private let ambientGradientLayer: CAGradientLayer = {
-        let layer = CAGradientLayer()
-        layer.colors = [
-            PrismTheme.Colors.textSecondary.withAlphaComponent(0.1).cgColor,
-            UIColor.clear.cgColor
-        ]
-        layer.locations = [0, 1]
-        layer.startPoint = CGPoint(x: 0, y: 0)
-        layer.endPoint = CGPoint(x: 1, y: 1)
-        return layer
-    }()
+    // MARK: - UI State
     
-    // Custom Navigation Bar
+    private var uiState: CaptureUIState = .idle {
+        didSet { updateUIState(animated: true) }
+    }
+    
+    // MARK: - Constraint References (for animation)
+    
+    private var galleryButtonWidthConstraint: NSLayoutConstraint?
+    private var shutterButtonLeadingToGalleryConstraint: NSLayoutConstraint?
+    private var shutterButtonLeadingToViewConstraint: NSLayoutConstraint?
+    
+    // MARK: - UI Components - Header
+    
     private lazy var customNavBar: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -84,116 +98,172 @@ final class CaptureViewController: UIViewController {
         return button
     }()
     
-    // Scanner Portal
-    private lazy var portalView: PortalView = {
-        let view = PortalView()
+    // MARK: - UI Components - Viewfinder
+    
+    private lazy var viewfinderCard: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemGray6
+        view.layer.cornerRadius = 24
+        view.clipsToBounds = true
         return view
     }()
     
-    private lazy var receiptImageView: UIImageView = {
+    private lazy var cameraPreviewView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .black
+        return view
+    }()
+    
+    // Corner brackets
+    private lazy var topLeftBracket = createCornerBracket(corners: [.topLeft])
+    private lazy var topRightBracket = createCornerBracket(corners: [.topRight])
+    private lazy var bottomLeftBracket = createCornerBracket(corners: [.bottomLeft])
+    private lazy var bottomRightBracket = createCornerBracket(corners: [.bottomRight])
+    
+    // Permission fallback UI
+    private lazy var permissionView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemGray5
+        view.isHidden = true
+        
+        let lockIcon = UIImageView(image: UIImage(systemName: "lock.fill"))
+        lockIcon.tintColor = .systemGray
+        lockIcon.contentMode = .scaleAspectFit
+        lockIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 48, weight: .light)
+        
+        let button = UIButton(type: .system)
+        button.setTitle("Tap to Allow Camera", for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .medium)
+        button.addTarget(self, action: #selector(requestCameraPermission), for: .touchUpInside)
+        
+        let stack = UIStackView(arrangedSubviews: [lockIcon, button])
+        stack.axis = .vertical
+        stack.spacing = 16
+        stack.alignment = .center
+        
+        view.addSubview(stack)
+        stack.enableAutoLayout()
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
+        
+        return view
+    }()
+    
+    // Captured image view - shows the actual image being processed (WYSIWYG)
+    private lazy var capturedImageView: UIImageView = {
         let imageView = UIImageView()
-        imageView.contentMode = .scaleAspectFit
+        imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
-        imageView.image = UIImage(systemName: "viewfinder")
-        imageView.tintColor = PrismTheme.Colors.textMuted
-        imageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 48, weight: .ultraLight)
+        imageView.isHidden = true
         return imageView
     }()
     
-    private lazy var portalHintLabel: UILabel = {
-        let label = UILabel()
-        label.text = "TAP TO SCAN"
-        label.font = PrismTheme.Fonts.caption
-        label.textColor = PrismTheme.Colors.textMuted
-        label.textAlignment = .center
-        
-        let attributedString = NSMutableAttributedString(string: "TAP TO SCAN")
-        attributedString.addAttribute(.kern, value: 2.0, range: NSRange(location: 0, length: 11))
-        label.attributedText = attributedString
-        return label
-    }()
-    
-    // Status - use horizontal StackView for centered spinner + label
-    private lazy var statusStack: UIStackView = {
-        let stack = UIStackView()
-        stack.axis = .horizontal
-        stack.spacing = 8
-        stack.alignment = .center
-        return stack
-    }()
-    
-    private lazy var statusLabel: UILabel = {
-        let label = UILabel()
-        label.font = PrismTheme.Fonts.body
-        label.textAlignment = .center
-        label.textColor = PrismTheme.Colors.textSecondary
-        label.text = "Ready to scan"
-        return label
-    }()
-    
-    private lazy var activityIndicator: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView(style: .medium)
-        indicator.hidesWhenStopped = true
-        indicator.color = PrismTheme.Colors.accent
-        return indicator
-    }()
-    
-    // Action Button
-    private lazy var scanButton: GradientButton = {
-        let button = GradientButton()
-        
-        let title = "SCAN RECEIPT"
-        let attributedString = NSMutableAttributedString(string: title)
-        attributedString.addAttribute(.kern, value: 2.0, range: NSRange(location: 0, length: title.count))
-        attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 16, weight: .bold), range: NSRange(location: 0, length: title.count))
-        attributedString.addAttribute(.foregroundColor, value: UIColor.white, range: NSRange(location: 0, length: title.count))
-        
-        button.setAttributedTitle(attributedString, for: .normal)
-        button.addTarget(self, action: #selector(scanButtonTapped), for: .touchUpInside)
-        return button
-    }()
-    
-    private lazy var resetButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.title = "Reset"
-        config.image = UIImage(systemName: "arrow.counterclockwise")
-        config.imagePadding = 6
-        config.baseForegroundColor = PrismTheme.Colors.textSecondary
-        
-        let button = UIButton(configuration: config)
-        button.addTarget(self, action: #selector(resetButtonTapped), for: .touchUpInside)
-        button.isHidden = true
-        return button
-    }()
-    
-    // Result Card
-    private lazy var resultCard: GlassView = {
-        let view = GlassView()
+    // White processing overlay - indicates scanning in progress
+    private lazy var processingOverlay: UIView = {
+        let view = UIView()
+        view.backgroundColor = .white
         view.alpha = 0
-        view.transform = CGAffineTransform(translationX: 0, y: 50)
         return view
     }()
     
-    private lazy var resultTitleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "ANALYSIS RESULT"
-        label.font = PrismTheme.Fonts.caption
-        label.textColor = PrismTheme.Colors.accent
+    // Frozen frame overlay (legacy - kept for camera preview snapshot)
+    private lazy var frozenFrameView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFill
+        imageView.isHidden = true
+        return imageView
+    }()
+    
+    // Error overlay
+    private lazy var errorOverlay: UIView = {
+        let view = UIView()
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        view.isHidden = true
         
-        let attributedString = NSMutableAttributedString(string: "ANALYSIS RESULT")
-        attributedString.addAttribute(.kern, value: 1.5, range: NSRange(location: 0, length: 15))
-        label.attributedText = attributedString
+        let icon = UIImageView(image: UIImage(systemName: "exclamationmark.triangle.fill"))
+        icon.tintColor = .white
+        icon.contentMode = .scaleAspectFit
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 48, weight: .light)
+        
+        let label = UILabel()
+        label.text = "Scan Failed"
+        label.font = UIFont.systemFont(ofSize: 17, weight: .medium)
+        label.textColor = .white
+        label.textAlignment = .center
+        
+        let stack = UIStackView(arrangedSubviews: [icon, label])
+        stack.axis = .vertical
+        stack.spacing = 12
+        stack.alignment = .center
+        
+        view.addSubview(stack)
+        stack.enableAutoLayout()
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
+        
+        return view
+    }()
+    
+    // MARK: - UI Components - Action Bar
+    
+    private lazy var actionBar: UIView = {
+        let view = UIView()
+        return view
+    }()
+    
+    private lazy var galleryButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.backgroundColor = .systemGray6
+        button.layer.cornerRadius = 16
+        button.setImage(UIImage(systemName: "photo.on.rectangle"), for: .normal)
+        button.tintColor = .black
+        button.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
+        button.addTarget(self, action: #selector(galleryButtonTapped), for: .touchUpInside)
+        return button
+    }()
+    
+    private lazy var shutterButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.backgroundColor = UIColor.label
+        button.layer.cornerRadius = 16
+        button.addTarget(self, action: #selector(shutterButtonTapped), for: .touchUpInside)
+        return button
+    }()
+    
+    private lazy var shutterLabel: UILabel = {
+        let label = UILabel()
+        label.text = "SCAN RECEIPT"
+        label.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        label.textColor = .white
         return label
     }()
     
-    private lazy var resultTextView: UITextView = {
-        let textView = UITextView()
-        textView.font = PrismTheme.Fonts.mono
-        textView.backgroundColor = .clear
-        textView.isEditable = false
-        textView.textColor = PrismTheme.Colors.success
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
-        return textView
+    private lazy var shutterSpinner: UIActivityIndicatorView = {
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.color = .white
+        spinner.hidesWhenStopped = true
+        return spinner
+    }()
+    
+    private lazy var shutterIcon: UIImageView = {
+        let imageView = UIImageView()
+        imageView.tintColor = .white
+        imageView.contentMode = .scaleAspectFit
+        imageView.isHidden = true
+        return imageView
+    }()
+    
+    private lazy var shutterStack: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [shutterSpinner, shutterIcon, shutterLabel])
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.alignment = .center
+        stack.isUserInteractionEnabled = false
+        return stack
     }()
     
     // MARK: - Initialization
@@ -214,12 +284,22 @@ final class CaptureViewController: UIViewController {
         setupUI()
         setupConstraints()
         setupBindings()
-        setupGestures()
+        checkCameraPermission()
     }
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        ambientGradientLayer.frame = CGRect(x: -100, y: -100, width: 400, height: 400)
+        previewLayer?.frame = cameraPreviewView.bounds
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        startCameraSession()
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        stopCameraSession()
     }
     
     // MARK: - Setup
@@ -228,111 +308,156 @@ final class CaptureViewController: UIViewController {
         view.backgroundColor = PrismTheme.Colors.background
         navigationController?.setNavigationBarHidden(true, animated: false)
         
-        // Ambient glow
-        ambientGradientView.layer.addSublayer(ambientGradientLayer)
-        view.addSubview(ambientGradientView)
-        
-        // Custom nav bar
+        // Header
         customNavBar.addArrangedSubview(logoLabel)
         customNavBar.addArrangedSubview(modelSelectorButton)
         customNavBar.addArrangedSubview(historyButton)
         view.addSubview(customNavBar)
         
-        // Portal
-        portalView.addSubview(receiptImageView)
-        portalView.addSubview(portalHintLabel)
-        view.addSubview(portalView)
+        // Viewfinder
+        viewfinderCard.addSubview(cameraPreviewView)
+        viewfinderCard.addSubview(frozenFrameView)
+        viewfinderCard.addSubview(capturedImageView)  // WYSIWYG layer
+        viewfinderCard.addSubview(processingOverlay)  // White overlay for processing
+        viewfinderCard.addSubview(permissionView)
+        viewfinderCard.addSubview(errorOverlay)
+        viewfinderCard.addSubview(topLeftBracket)
+        viewfinderCard.addSubview(topRightBracket)
+        viewfinderCard.addSubview(bottomLeftBracket)
+        viewfinderCard.addSubview(bottomRightBracket)
+        view.addSubview(viewfinderCard)
         
-        // Status area - use centered StackView
-        statusStack.addArrangedSubview(activityIndicator)
-        statusStack.addArrangedSubview(statusLabel)
-        view.addSubview(statusStack)
-        
-        // Action buttons
-        view.addSubview(scanButton)
-        view.addSubview(resetButton)
-        
-        // Result card
-        resultCard.addSubview(resultTitleLabel)
-        resultCard.addSubview(resultTextView)
-        view.addSubview(resultCard)
+        // Action Bar
+        shutterButton.addSubview(shutterStack)
+        actionBar.addSubview(galleryButton)
+        actionBar.addSubview(shutterButton)
+        view.addSubview(actionBar)
     }
     
     private func setupConstraints() {
-        let padding = PrismTheme.Spacing.lg  // Increased padding for Zen spacing
+        let padding: CGFloat = 16
         let safeArea = view.safeAreaLayoutGuide
-        let bottomInset: CGFloat = 100  // Space for floating tab bar
+        let tabBarOffset: CGFloat = 100  // Account for floating tab bar
         
-        ambientGradientView.enableAutoLayout()
         customNavBar.enableAutoLayout()
-        portalView.enableAutoLayout()
-        receiptImageView.enableAutoLayout()
-        portalHintLabel.enableAutoLayout()
-        statusStack.enableAutoLayout()
-        scanButton.enableAutoLayout()
-        resetButton.enableAutoLayout()
-        resultCard.enableAutoLayout()
-        resultTitleLabel.enableAutoLayout()
-        resultTextView.enableAutoLayout()
+        viewfinderCard.enableAutoLayout()
+        cameraPreviewView.enableAutoLayout()
+        frozenFrameView.enableAutoLayout()
+        capturedImageView.enableAutoLayout()
+        processingOverlay.enableAutoLayout()
+        permissionView.enableAutoLayout()
+        errorOverlay.enableAutoLayout()
+        topLeftBracket.enableAutoLayout()
+        topRightBracket.enableAutoLayout()
+        bottomLeftBracket.enableAutoLayout()
+        bottomRightBracket.enableAutoLayout()
+        actionBar.enableAutoLayout()
+        galleryButton.enableAutoLayout()
+        shutterButton.enableAutoLayout()
+        shutterStack.enableAutoLayout()
+        
+        // Gallery button width constraint (for hiding animation)
+        galleryButtonWidthConstraint = galleryButton.widthAnchor.constraint(equalToConstant: 56)
+        
+        // Shutter button constraints for morphing
+        shutterButtonLeadingToGalleryConstraint = shutterButton.leadingAnchor.constraint(equalTo: galleryButton.trailingAnchor, constant: 12)
+        shutterButtonLeadingToViewConstraint = shutterButton.leadingAnchor.constraint(equalTo: actionBar.leadingAnchor)
+        shutterButtonLeadingToViewConstraint?.isActive = false
+        
+        let bracketSize: CGFloat = 40
+        let bracketInset: CGFloat = 16
         
         NSLayoutConstraint.activate([
-            // Ambient gradient (subtle, no changes needed)
-            ambientGradientView.topAnchor.constraint(equalTo: view.topAnchor),
-            ambientGradientView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            ambientGradientView.widthAnchor.constraint(equalToConstant: 400),
-            ambientGradientView.heightAnchor.constraint(equalToConstant: 400),
-            
-            // Custom nav bar - generous top spacing
-            customNavBar.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: PrismTheme.Spacing.md),
+            // Header
+            customNavBar.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: padding),
             customNavBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
             customNavBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
             customNavBar.heightAnchor.constraint(equalToConstant: 44),
             
-            // Portal - more vertical spacing, centered feel
-            portalView.topAnchor.constraint(equalTo: customNavBar.bottomAnchor, constant: PrismTheme.Spacing.xl),
-            portalView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
-            portalView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
-            portalView.heightAnchor.constraint(equalToConstant: 240),  // Slightly smaller for balance
+            // Viewfinder Card
+            viewfinderCard.topAnchor.constraint(equalTo: customNavBar.bottomAnchor, constant: padding),
+            viewfinderCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
+            viewfinderCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
+            viewfinderCard.bottomAnchor.constraint(equalTo: actionBar.topAnchor, constant: -padding),
             
-            // Image inside portal - more centered with larger insets
-            receiptImageView.topAnchor.constraint(equalTo: portalView.topAnchor, constant: PrismTheme.Spacing.lg),
-            receiptImageView.leadingAnchor.constraint(equalTo: portalView.leadingAnchor, constant: PrismTheme.Spacing.lg),
-            receiptImageView.trailingAnchor.constraint(equalTo: portalView.trailingAnchor, constant: -PrismTheme.Spacing.lg),
-            receiptImageView.bottomAnchor.constraint(equalTo: portalHintLabel.topAnchor, constant: -PrismTheme.Spacing.md),
+            // Camera preview fills viewfinder
+            cameraPreviewView.topAnchor.constraint(equalTo: viewfinderCard.topAnchor),
+            cameraPreviewView.leadingAnchor.constraint(equalTo: viewfinderCard.leadingAnchor),
+            cameraPreviewView.trailingAnchor.constraint(equalTo: viewfinderCard.trailingAnchor),
+            cameraPreviewView.bottomAnchor.constraint(equalTo: viewfinderCard.bottomAnchor),
             
-            // Portal hint - more bottom padding
-            portalHintLabel.bottomAnchor.constraint(equalTo: portalView.bottomAnchor, constant: -PrismTheme.Spacing.lg),
-            portalHintLabel.centerXAnchor.constraint(equalTo: portalView.centerXAnchor),
+            // Frozen frame overlay (legacy)
+            frozenFrameView.topAnchor.constraint(equalTo: viewfinderCard.topAnchor),
+            frozenFrameView.leadingAnchor.constraint(equalTo: viewfinderCard.leadingAnchor),
+            frozenFrameView.trailingAnchor.constraint(equalTo: viewfinderCard.trailingAnchor),
+            frozenFrameView.bottomAnchor.constraint(equalTo: viewfinderCard.bottomAnchor),
             
-            // Status StackView - centered horizontally with proper spacing
-            statusStack.topAnchor.constraint(equalTo: portalView.bottomAnchor, constant: PrismTheme.Spacing.xl),
-            statusStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            // Captured image view (WYSIWYG)
+            capturedImageView.topAnchor.constraint(equalTo: viewfinderCard.topAnchor),
+            capturedImageView.leadingAnchor.constraint(equalTo: viewfinderCard.leadingAnchor),
+            capturedImageView.trailingAnchor.constraint(equalTo: viewfinderCard.trailingAnchor),
+            capturedImageView.bottomAnchor.constraint(equalTo: viewfinderCard.bottomAnchor),
             
-            // Scan button - generous spacing
-            scanButton.topAnchor.constraint(equalTo: statusStack.bottomAnchor, constant: PrismTheme.Spacing.xl),
-            scanButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
-            scanButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
-            scanButton.heightAnchor.constraint(equalToConstant: 52),  // Slightly smaller, more refined
+            // Processing overlay (white)
+            processingOverlay.topAnchor.constraint(equalTo: viewfinderCard.topAnchor),
+            processingOverlay.leadingAnchor.constraint(equalTo: viewfinderCard.leadingAnchor),
+            processingOverlay.trailingAnchor.constraint(equalTo: viewfinderCard.trailingAnchor),
+            processingOverlay.bottomAnchor.constraint(equalTo: viewfinderCard.bottomAnchor),
             
-            // Reset button
-            resetButton.topAnchor.constraint(equalTo: scanButton.bottomAnchor, constant: PrismTheme.Spacing.md),
-            resetButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            // Permission view
+            permissionView.topAnchor.constraint(equalTo: viewfinderCard.topAnchor),
+            permissionView.leadingAnchor.constraint(equalTo: viewfinderCard.leadingAnchor),
+            permissionView.trailingAnchor.constraint(equalTo: viewfinderCard.trailingAnchor),
+            permissionView.bottomAnchor.constraint(equalTo: viewfinderCard.bottomAnchor),
             
-            // Result card - account for floating tab bar
-            resultCard.topAnchor.constraint(equalTo: resetButton.bottomAnchor, constant: PrismTheme.Spacing.lg),
-            resultCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
-            resultCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
-            resultCard.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor, constant: -bottomInset),
+            // Error overlay
+            errorOverlay.topAnchor.constraint(equalTo: viewfinderCard.topAnchor),
+            errorOverlay.leadingAnchor.constraint(equalTo: viewfinderCard.leadingAnchor),
+            errorOverlay.trailingAnchor.constraint(equalTo: viewfinderCard.trailingAnchor),
+            errorOverlay.bottomAnchor.constraint(equalTo: viewfinderCard.bottomAnchor),
             
-            // Result title
-            resultTitleLabel.topAnchor.constraint(equalTo: resultCard.topAnchor, constant: PrismTheme.Spacing.md),
-            resultTitleLabel.leadingAnchor.constraint(equalTo: resultCard.leadingAnchor, constant: PrismTheme.Spacing.md),
+            // Corner brackets
+            topLeftBracket.topAnchor.constraint(equalTo: viewfinderCard.topAnchor, constant: bracketInset),
+            topLeftBracket.leadingAnchor.constraint(equalTo: viewfinderCard.leadingAnchor, constant: bracketInset),
+            topLeftBracket.widthAnchor.constraint(equalToConstant: bracketSize),
+            topLeftBracket.heightAnchor.constraint(equalToConstant: bracketSize),
             
-            // Result text
-            resultTextView.topAnchor.constraint(equalTo: resultTitleLabel.bottomAnchor, constant: PrismTheme.Spacing.sm),
-            resultTextView.leadingAnchor.constraint(equalTo: resultCard.leadingAnchor, constant: PrismTheme.Spacing.sm),
-            resultTextView.trailingAnchor.constraint(equalTo: resultCard.trailingAnchor, constant: -PrismTheme.Spacing.sm),
-            resultTextView.bottomAnchor.constraint(equalTo: resultCard.bottomAnchor, constant: -PrismTheme.Spacing.sm)
+            topRightBracket.topAnchor.constraint(equalTo: viewfinderCard.topAnchor, constant: bracketInset),
+            topRightBracket.trailingAnchor.constraint(equalTo: viewfinderCard.trailingAnchor, constant: -bracketInset),
+            topRightBracket.widthAnchor.constraint(equalToConstant: bracketSize),
+            topRightBracket.heightAnchor.constraint(equalToConstant: bracketSize),
+            
+            bottomLeftBracket.bottomAnchor.constraint(equalTo: viewfinderCard.bottomAnchor, constant: -bracketInset),
+            bottomLeftBracket.leadingAnchor.constraint(equalTo: viewfinderCard.leadingAnchor, constant: bracketInset),
+            bottomLeftBracket.widthAnchor.constraint(equalToConstant: bracketSize),
+            bottomLeftBracket.heightAnchor.constraint(equalToConstant: bracketSize),
+            
+            bottomRightBracket.bottomAnchor.constraint(equalTo: viewfinderCard.bottomAnchor, constant: -bracketInset),
+            bottomRightBracket.trailingAnchor.constraint(equalTo: viewfinderCard.trailingAnchor, constant: -bracketInset),
+            bottomRightBracket.widthAnchor.constraint(equalToConstant: bracketSize),
+            bottomRightBracket.heightAnchor.constraint(equalToConstant: bracketSize),
+            
+            // Action Bar
+            actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: padding),
+            actionBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -padding),
+            actionBar.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor, constant: -tabBarOffset + 60),
+            actionBar.heightAnchor.constraint(equalToConstant: 56),
+            
+            // Gallery Button
+            galleryButton.leadingAnchor.constraint(equalTo: actionBar.leadingAnchor),
+            galleryButton.topAnchor.constraint(equalTo: actionBar.topAnchor),
+            galleryButton.bottomAnchor.constraint(equalTo: actionBar.bottomAnchor),
+            galleryButtonWidthConstraint!,
+            
+            // Shutter Button
+            shutterButtonLeadingToGalleryConstraint!,
+            shutterButton.trailingAnchor.constraint(equalTo: actionBar.trailingAnchor),
+            shutterButton.topAnchor.constraint(equalTo: actionBar.topAnchor),
+            shutterButton.bottomAnchor.constraint(equalTo: actionBar.bottomAnchor),
+            
+            // Shutter stack centered
+            shutterStack.centerXAnchor.constraint(equalTo: shutterButton.centerXAnchor),
+            shutterStack.centerYAnchor.constraint(equalTo: shutterButton.centerYAnchor)
         ])
     }
     
@@ -340,79 +465,317 @@ final class CaptureViewController: UIViewController {
         viewModel.$state
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
-                self?.handleStateChange(state)
+                self?.handleViewModelState(state)
             }
             .store(in: &cancellables)
         
-        viewModel.$selectedImage
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] image in
-                if let image = image {
-                    self?.receiptImageView.image = image
-                    self?.receiptImageView.contentMode = .scaleAspectFit
-                    self?.portalHintLabel.isHidden = true
-                }
-            }
-            .store(in: &cancellables)
-        
-        // Listen for saved transactions to show ZenToast
         viewModel.$savedTransaction
             .receive(on: DispatchQueue.main)
             .compactMap { $0 }
             .sink { [weak self] transaction in
-                self?.showSavedToast(for: transaction)
+                self?.uiState = .success(transaction)
             }
             .store(in: &cancellables)
     }
     
-    private var currentToast: ZenToast?
+    // MARK: - Camera Setup
     
-    private func showSavedToast(for transaction: Transaction) {
-        // Clear any existing toast
-        currentToast?.removeFromSuperview()
-        
-        let toast = ZenToast()
-        currentToast = toast
-        
-        toast.onViewTapped = { [weak self] in
-            self?.navigateToTransaction(transaction)
+    private func checkCameraPermission() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            cameraPermissionGranted = true
+            setupCamera()
+        case .notDetermined:
+            permissionView.isHidden = false
+        case .denied, .restricted:
+            permissionView.isHidden = false
+        @unknown default:
+            permissionView.isHidden = false
         }
-        
-        // Show toast above tab bar
-        toast.show(in: view, bottomOffset: 140, duration: 4.0)
-        
-        // Clear saved transaction after toast is shown
-        viewModel.clearSavedTransaction()
     }
     
-    private func navigateToTransaction(_ transaction: Transaction) {
-        // Hide toast
-        currentToast?.hide()
-        
-        // Dismiss capture modal
-        dismiss(animated: true) {
-            // Navigate to transaction detail
-            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = windowScene.windows.first,
-                  let tabBarController = window.rootViewController as? UITabBarController else {
+    @objc private func requestCameraPermission() {
+        AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+            DispatchQueue.main.async {
+                if granted {
+                    self?.cameraPermissionGranted = true
+                    self?.permissionView.isHidden = true
+                    self?.setupCamera()
+                    self?.startCameraSession()
+                } else {
+                    // Open settings
+                    if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(settingsURL)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func setupCamera() {
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.captureSession.beginConfiguration()
+            self.captureSession.sessionPreset = .photo
+            
+            // Add video input
+            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+                  let input = try? AVCaptureDeviceInput(device: camera),
+                  self.captureSession.canAddInput(input) else {
+                self.captureSession.commitConfiguration()
                 return
             }
+            self.captureSession.addInput(input)
             
-            // Switch to Transactions tab (index 0)
-            tabBarController.selectedIndex = 0
+            // Add photo output
+            let output = AVCapturePhotoOutput()
+            guard self.captureSession.canAddOutput(output) else {
+                self.captureSession.commitConfiguration()
+                return
+            }
+            self.captureSession.addOutput(output)
+            self.photoOutput = output
             
-            // Get the transactions navigation controller and push detail
-            if let navController = tabBarController.viewControllers?.first as? UINavigationController {
-                let detailVC = TransactionDetailViewController(transaction: transaction)
-                navController.pushViewController(detailVC, animated: true)
+            self.captureSession.commitConfiguration()
+            
+            // Setup preview layer on main thread
+            DispatchQueue.main.async {
+                let previewLayer = AVCaptureVideoPreviewLayer(session: self.captureSession)
+                previewLayer.videoGravity = .resizeAspectFill
+                previewLayer.frame = self.cameraPreviewView.bounds
+                self.cameraPreviewView.layer.addSublayer(previewLayer)
+                self.previewLayer = previewLayer
+                
+                self.permissionView.isHidden = true
             }
         }
     }
     
-    private func setupGestures() {
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(portalTapped))
-        portalView.addGestureRecognizer(tapGesture)
-        portalView.isUserInteractionEnabled = true
+    private func startCameraSession() {
+        guard cameraPermissionGranted else { return }
+        sessionQueue.async { [weak self] in
+            if self?.captureSession.isRunning == false {
+                self?.captureSession.startRunning()
+            }
+        }
+    }
+    
+    private func stopCameraSession() {
+        sessionQueue.async { [weak self] in
+            if self?.captureSession.isRunning == true {
+                self?.captureSession.stopRunning()
+            }
+        }
+    }
+    
+    // MARK: - State Management
+    
+    private func handleViewModelState(_ state: CaptureState) {
+        switch state {
+        case .idle:
+            // Only reset to idle if we're not showing success
+            if case .success = uiState { return }
+            uiState = .idle
+        case .scanning, .analyzing:
+            uiState = .processing
+        case .success:
+            // Wait for savedTransaction binding to trigger success
+            break
+        case .error(let message):
+            uiState = .failure(message)
+        }
+    }
+    
+    private func updateUIState(animated: Bool) {
+        let duration: TimeInterval = animated ? 0.3 : 0
+        
+        switch uiState {
+        case .idle:
+            // Gallery visible, Shutter normal
+            UIView.animate(withDuration: duration) {
+                self.galleryButton.alpha = 1
+                self.galleryButton.isHidden = false
+                self.galleryButtonWidthConstraint?.constant = 56
+                self.shutterButtonLeadingToGalleryConstraint?.isActive = true
+                self.shutterButtonLeadingToViewConstraint?.isActive = false
+                
+                self.shutterButton.backgroundColor = UIColor.label
+                self.shutterLabel.text = "SCAN RECEIPT"
+                self.shutterSpinner.stopAnimating()
+                self.shutterIcon.isHidden = true
+                self.shutterLabel.isHidden = false
+                self.shutterButton.isEnabled = true
+                
+                // Hide all overlays
+                self.frozenFrameView.isHidden = true
+                self.capturedImageView.isHidden = true
+                self.processingOverlay.alpha = 0
+                self.errorOverlay.isHidden = true
+                
+                self.view.layoutIfNeeded()
+            }
+            
+            // Restart camera
+            startCameraSession()
+            
+        case .processing:
+            // DON'T freeze camera here - wait until photo is captured
+            // The camera is frozen in the photo capture delegate callback
+            
+            UIView.animate(withDuration: duration) {
+                self.galleryButton.alpha = 0
+                self.galleryButtonWidthConstraint?.constant = 0
+                self.shutterButtonLeadingToGalleryConstraint?.isActive = false
+                self.shutterButtonLeadingToViewConstraint?.isActive = true
+                
+                self.shutterButton.backgroundColor = UIColor(hex: "#9B9A97")  // Stone Grey
+                self.shutterLabel.text = "SCAN IN PROCESS..."
+                self.shutterSpinner.startAnimating()
+                self.shutterIcon.isHidden = true
+                self.shutterLabel.isHidden = false
+                self.shutterButton.isEnabled = false
+                
+                // Animate white overlay to 0.4 alpha (processing indicator)
+                self.processingOverlay.alpha = 0.4
+                self.errorOverlay.isHidden = true
+                
+                self.view.layoutIfNeeded()
+            } completion: { _ in
+                self.galleryButton.isHidden = true
+            }
+            
+        case .success(let transaction):
+            // Spring animation to success - fade out processing overlay
+            UIView.animate(
+                withDuration: 0.5,
+                delay: 0,
+                usingSpringWithDamping: 0.7,
+                initialSpringVelocity: 0.5
+            ) {
+                self.shutterButton.backgroundColor = UIColor(hex: "#4A6C45")  // Matcha Green
+                self.shutterLabel.text = "TRANSACTION ADDED"
+                self.shutterSpinner.stopAnimating()
+                self.shutterIcon.image = UIImage(systemName: "checkmark.circle.fill")
+                self.shutterIcon.isHidden = false
+                self.shutterButton.isEnabled = false
+                
+                // Fade out processing overlay
+                self.processingOverlay.alpha = 0
+            }
+            
+            // Haptic feedback
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.success)
+            
+            // Show toast and revert after delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.showSavedToast(for: transaction)
+                self?.viewModel.clearSavedTransaction()
+                self?.viewModel.reset()
+                self?.uiState = .idle
+            }
+            
+        case .failure(let message):
+            // Stop spinner immediately (outside animation block)
+            shutterSpinner.stopAnimating()
+            
+            // Show error overlay, fade out processing overlay
+            UIView.animate(withDuration: duration) {
+                self.errorOverlay.isHidden = false
+                self.processingOverlay.alpha = 0
+                
+                // Keep captured image visible behind error overlay
+                // (so user sees what they captured)
+                
+                // Show gallery button
+                self.galleryButton.alpha = 1
+                self.galleryButton.isHidden = false
+                self.galleryButtonWidthConstraint?.constant = 56
+                self.shutterButtonLeadingToGalleryConstraint?.isActive = true
+                self.shutterButtonLeadingToViewConstraint?.isActive = false
+                
+                self.shutterButton.backgroundColor = UIColor.label
+                self.shutterLabel.text = "RETRY"
+                self.shutterIcon.isHidden = true
+                self.shutterLabel.isHidden = false
+                self.shutterButton.isEnabled = true
+                
+                self.view.layoutIfNeeded()
+            }
+            
+            // Update error message in overlay
+            if let label = errorOverlay.subviews.first?.subviews.compactMap({ $0 as? UILabel }).first {
+                label.text = message
+            }
+        }
+    }
+    
+    private func freezeCamera() {
+        // Capture current frame from preview
+        guard let connection = photoOutput?.connection(with: .video),
+              connection.isEnabled else {
+            frozenFrameView.isHidden = false
+            frozenFrameView.backgroundColor = .black
+            return
+        }
+        
+        // Stop camera and show frozen frame
+        stopCameraSession()
+        
+        // Create snapshot of preview
+        if let previewLayer = previewLayer {
+            UIGraphicsBeginImageContextWithOptions(cameraPreviewView.bounds.size, false, 0)
+            if let context = UIGraphicsGetCurrentContext() {
+                previewLayer.render(in: context)
+                let snapshot = UIGraphicsGetImageFromCurrentImageContext()
+                UIGraphicsEndImageContext()
+                frozenFrameView.image = snapshot
+            }
+        }
+        
+        frozenFrameView.isHidden = false
+    }
+    
+    // MARK: - Corner Bracket Helper
+    
+    private func createCornerBracket(corners: UIRectCorner) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        
+        let shapeLayer = CAShapeLayer()
+        shapeLayer.strokeColor = UIColor.white.cgColor
+        shapeLayer.fillColor = UIColor.clear.cgColor
+        shapeLayer.lineWidth = 4
+        shapeLayer.lineCap = .round
+        
+        // Draw L shape based on corner
+        let path = UIBezierPath()
+        let size: CGFloat = 40
+        let length: CGFloat = 20
+        
+        if corners.contains(.topLeft) {
+            path.move(to: CGPoint(x: 0, y: length))
+            path.addLine(to: CGPoint(x: 0, y: 0))
+            path.addLine(to: CGPoint(x: length, y: 0))
+        } else if corners.contains(.topRight) {
+            path.move(to: CGPoint(x: size - length, y: 0))
+            path.addLine(to: CGPoint(x: size, y: 0))
+            path.addLine(to: CGPoint(x: size, y: length))
+        } else if corners.contains(.bottomLeft) {
+            path.move(to: CGPoint(x: 0, y: size - length))
+            path.addLine(to: CGPoint(x: 0, y: size))
+            path.addLine(to: CGPoint(x: length, y: size))
+        } else if corners.contains(.bottomRight) {
+            path.move(to: CGPoint(x: size, y: size - length))
+            path.addLine(to: CGPoint(x: size, y: size))
+            path.addLine(to: CGPoint(x: size - length, y: size))
+        }
+        
+        shapeLayer.path = path.cgPath
+        view.layer.addSublayer(shapeLayer)
+        
+        return view
     }
     
     // MARK: - Model Menu
@@ -437,91 +800,72 @@ final class CaptureViewController: UIViewController {
         modelSelectorButton.menu = createModelMenu()
     }
     
-    // MARK: - State Handling
+    // MARK: - Toast
     
-    private func handleStateChange(_ state: CaptureState) {
-        switch state {
-        case .idle:
-            activityIndicator.stopAnimating()
-            scanButton.isEnabled = true
-            resetButton.isHidden = true
-            portalView.isAnimating = false
-            statusLabel.text = "Ready to scan"
-            statusLabel.textColor = PrismTheme.Colors.textSecondary
-            
-            receiptImageView.image = UIImage(systemName: "viewfinder")
-            receiptImageView.tintColor = PrismTheme.Colors.textMuted
-            receiptImageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 48, weight: .ultraLight)
-            portalHintLabel.isHidden = false
-            
-            hideResultCard()
-            
-        case .scanning:
-            activityIndicator.startAnimating()
-            scanButton.isEnabled = false
-            portalView.isAnimating = true
-            statusLabel.text = "Scanning receipt..."
-            statusLabel.textColor = PrismTheme.Colors.accent
-            hideResultCard()
-            
-        case .analyzing:
-            statusLabel.text = "Analyzing with AI..."
-            statusLabel.textColor = PrismTheme.Colors.accentSubtle
-            
-        case .success:
-            activityIndicator.stopAnimating()
-            scanButton.isEnabled = true
-            resetButton.isHidden = false
-            portalView.isAnimating = false
-            statusLabel.text = "Analysis complete"
-            statusLabel.textColor = PrismTheme.Colors.success
-            
-            resultTextView.text = viewModel.resultJSON
-            showResultCard()
-            
-        case .error(let message):
-            activityIndicator.stopAnimating()
-            scanButton.isEnabled = true
-            resetButton.isHidden = false
-            portalView.isAnimating = false
-            statusLabel.text = message
-            statusLabel.textColor = PrismTheme.Colors.error
-            hideResultCard()
+    private var currentToast: ZenToast?
+    
+    private func showSavedToast(for transaction: Transaction) {
+        currentToast?.removeFromSuperview()
+        
+        let toast = ZenToast()
+        currentToast = toast
+        
+        toast.onViewTapped = { [weak self] in
+            self?.navigateToTransaction(transaction)
         }
+        
+        toast.show(in: view, bottomOffset: 140, duration: 4.0)
     }
     
-    private func showResultCard() {
-        UIView.animate(
-            withDuration: 0.5,
-            delay: 0,
-            usingSpringWithDamping: 0.8,
-            initialSpringVelocity: 0.5,
-            options: .curveEaseOut
-        ) {
-            self.resultCard.alpha = 1
-            self.resultCard.transform = .identity
-        }
-    }
-    
-    private func hideResultCard() {
-        UIView.animate(withDuration: 0.3) {
-            self.resultCard.alpha = 0
-            self.resultCard.transform = CGAffineTransform(translationX: 0, y: 50)
+    private func navigateToTransaction(_ transaction: Transaction) {
+        currentToast?.hide()
+        
+        dismiss(animated: true) {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let window = windowScene.windows.first,
+                  let tabBarController = window.rootViewController as? UITabBarController else {
+                return
+            }
+            
+            tabBarController.selectedIndex = 0
+            
+            if let navController = tabBarController.viewControllers?.first as? UINavigationController {
+                let detailVC = TransactionDetailViewController(transaction: transaction)
+                navController.pushViewController(detailVC, animated: true)
+            }
         }
     }
     
     // MARK: - Actions
     
-    @objc private func scanButtonTapped() {
-        presentImagePicker()
+    @objc private func shutterButtonTapped() {
+        print("👆 [CaptureVC] shutterButtonTapped, current state: \(uiState)")
+        
+        switch uiState {
+        case .idle:
+            // Normal capture
+            capturePhoto()
+            
+        case .failure:
+            // RETRY: Reset to idle first, then user can capture again
+            print("🔄 [CaptureVC] RETRY tapped, resetting to idle")
+            uiState = .idle
+            
+        case .processing, .success:
+            // Do nothing during processing or success animation
+            break
+        }
     }
     
-    @objc private func portalTapped() {
-        presentImagePicker()
-    }
-    
-    @objc private func resetButtonTapped() {
-        viewModel.reset()
+    @objc private func galleryButtonTapped() {
+        print("📷 [CaptureVC] galleryButtonTapped")
+        
+        // If in failure state, reset first
+        if case .failure = uiState {
+            uiState = .idle
+        }
+        
+        presentPhotoPicker()
     }
     
     @objc private func historyButtonTapped() {
@@ -537,57 +881,103 @@ final class CaptureViewController: UIViewController {
         present(navController, animated: true)
     }
     
-    private func presentImagePicker() {
-        let alertController = UIAlertController(
-            title: "Select Image Source",
-            message: nil,
-            preferredStyle: .actionSheet
-        )
+    // MARK: - Photo Capture
+    
+    private func capturePhoto() {
+        print("📸 [CaptureVC] capturePhoto() called")
         
-        if UIImagePickerController.isSourceTypeAvailable(.camera) {
-            alertController.addAction(UIAlertAction(title: "Camera", style: .default) { [weak self] _ in
-                self?.showImagePicker(sourceType: .camera)
-            })
+        guard let photoOutput = photoOutput else {
+            print("⚠️ [CaptureVC] No photoOutput available, opening gallery instead")
+            // No camera, open gallery instead
+            presentPhotoPicker()
+            return
         }
         
-        alertController.addAction(UIAlertAction(title: "Photo Library", style: .default) { [weak self] _ in
-            self?.showImagePicker(sourceType: .photoLibrary)
-        })
+        print("📸 [CaptureVC] Initiating photo capture...")
+        let settings = AVCapturePhotoSettings()
+        settings.flashMode = .auto
         
-        alertController.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        // First transition to processing state (UI feedback)
+        uiState = .processing
         
-        if let popover = alertController.popoverPresentationController {
-            popover.sourceView = scanButton
-            popover.sourceRect = scanButton.bounds
-        }
-        
-        present(alertController, animated: true)
+        // Then capture photo - delegate callback will handle the rest
+        photoOutput.capturePhoto(with: settings, delegate: self)
+        print("📸 [CaptureVC] Photo capture initiated, waiting for delegate...")
     }
     
-    private func showImagePicker(sourceType: UIImagePickerController.SourceType) {
-        let picker = UIImagePickerController()
-        picker.sourceType = sourceType
+    private func presentPhotoPicker() {
+        var config = PHPickerConfiguration()
+        config.filter = .images
+        config.selectionLimit = 1
+        
+        let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
-        picker.allowsEditing = false
         present(picker, animated: true)
     }
 }
 
-// MARK: - UIImagePickerControllerDelegate
+// MARK: - AVCapturePhotoCaptureDelegate
 
-extension CaptureViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+extension CaptureViewController: AVCapturePhotoCaptureDelegate {
     
-    func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-    ) {
-        picker.dismiss(animated: true)
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        print("📸 [CaptureVC] Photo delegate callback received")
         
-        guard let image = info[.originalImage] as? UIImage else { return }
+        if let error = error {
+            print("❌ [CaptureVC] Photo capture error: \(error)")
+            uiState = .failure("Failed to capture photo")
+            return
+        }
+        
+        print("📸 [CaptureVC] Photo captured successfully, processing...")
+        
+        // Now freeze the camera since we have the photo
+        freezeCamera()
+        
+        guard let imageData = photo.fileDataRepresentation(),
+              let image = UIImage(data: imageData) else {
+            print("❌ [CaptureVC] Failed to get image data from photo")
+            uiState = .failure("Failed to process photo")
+            return
+        }
+        
+        // WYSIWYG: Show the actual captured image
+        capturedImageView.image = image
+        capturedImageView.isHidden = false
+        
+        print("📸 [CaptureVC] Image created: \(image.size), sending to viewModel...")
+        
+        // Process the image
         viewModel.processImage(image)
     }
+}
+
+// MARK: - PHPickerViewControllerDelegate
+
+extension CaptureViewController: PHPickerViewControllerDelegate {
     
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
+        
+        guard let provider = results.first?.itemProvider,
+              provider.canLoadObject(ofClass: UIImage.self) else {
+            return
+        }
+        
+        uiState = .processing
+        
+        provider.loadObject(ofClass: UIImage.self) { [weak self] image, error in
+            DispatchQueue.main.async {
+                if let image = image as? UIImage {
+                    // WYSIWYG: Show the actual selected image
+                    self?.capturedImageView.image = image
+                    self?.capturedImageView.isHidden = false
+                    
+                    self?.viewModel.processImage(image)
+                } else {
+                    self?.uiState = .failure("Failed to load image")
+                }
+            }
+        }
     }
 }

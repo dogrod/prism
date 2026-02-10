@@ -105,6 +105,9 @@ final class CaptureViewModel: ObservableObject {
         } catch let error as LLMError {
             print("❌ [CaptureVM] LLM Error: \(error.localizedDescription)")
             state = .error(error.localizedDescription)
+        } catch let error as ReceiptError {
+            print("❌ [CaptureVM] Receipt Error: \(error.localizedDescription)")
+            state = .error(error.localizedDescription)
         } catch {
             print("❌ [CaptureVM] Unexpected Error: \(error.localizedDescription)")
             state = .error("An unexpected error occurred: \(error.localizedDescription)")
@@ -179,24 +182,14 @@ final class CaptureViewModel: ObservableObject {
                 print("   Account: \(transaction.account?.name ?? "Unknown")")
                 print("   Amount: \(transaction.amount ?? 0) \(transaction.currency ?? "CAD")")
                 
+                // Check if it's a potential duplicate
+                if transaction.duplicateOfTransactionID != nil {
+                    print("⚠️ [CaptureVM] Transaction marked as potential duplicate")
+                }
+                
                 // Publish for toast navigation
                 await MainActor.run {
                     self.savedTransaction = transaction
-                }
-                
-            case .duplicateDetected(let existing):
-                print("⚠️ [CaptureVM] Duplicate detected - existing transaction from \(existing.date?.description ?? "unknown date")")
-                // Force add and publish
-                let forceResult = await ScanProcessor.shared.forceAddDuplicate(
-                    receipt: receiptData,
-                    rawJSON: rawJSON,
-                    image: image
-                )
-                if case .success(let transaction) = forceResult {
-                    print("✅ [CaptureVM] Duplicate added as new transaction: \(transaction.id?.uuidString ?? "Unknown")")
-                    await MainActor.run {
-                        self.savedTransaction = transaction
-                    }
                 }
                 
             case .error(let error):

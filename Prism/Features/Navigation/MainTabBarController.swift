@@ -48,41 +48,55 @@ final class MainTabBarController: UITabBarController, UITabBarControllerDelegate
     
     // MARK: - Tab Configuration (iOS 26 Split Layout - GitHub Style)
     
+    // MARK: - Pre-created View Controllers (Best Practice: avoid lazy recreation)
+    
+    private lazy var transactionsNavController: UINavigationController = {
+        let transactionsVC = TransactionsViewController()
+        let navController = UINavigationController(rootViewController: transactionsVC)
+        navController.navigationBar.prefersLargeTitles = true
+        return navController
+    }()
+    
+    private lazy var analyticsNavController: UINavigationController = {
+        let analyticsVC = AnalyticsViewController()
+        let navController = UINavigationController(rootViewController: analyticsVC)
+        navController.navigationBar.prefersLargeTitles = true
+        return navController
+    }()
+    
+    private lazy var settingsNavController: UINavigationController = {
+        let settingsVC = SettingsViewController()
+        let navController = UINavigationController(rootViewController: settingsVC)
+        navController.navigationBar.prefersLargeTitles = true
+        return navController
+    }()
+    
     private func configureTabs() {
-        // Create Transactions tab with NavigationController
+        // Create Transactions tab - uses pre-created nav controller
         let transactionsTab = UITab(
             title: "Transactions",
             image: UIImage(systemName: "list.bullet.rectangle.portrait"),
             identifier: TabID.transactions
-        ) { _ in
-            let transactionsVC = TransactionsViewController()
-            let navController = UINavigationController(rootViewController: transactionsVC)
-            navController.navigationBar.prefersLargeTitles = true
-            return navController
+        ) { [weak self] _ in
+            self?.transactionsNavController ?? UINavigationController()
         }
         
-        // Create Analytics tab with NavigationController
+        // Create Analytics tab - uses pre-created nav controller
         let analyticsTab = UITab(
             title: "Analytics",
             image: UIImage(systemName: "chart.bar.xaxis"),
             identifier: TabID.analytics
-        ) { _ in
-            let analyticsVC = AnalyticsViewController()
-            let navController = UINavigationController(rootViewController: analyticsVC)
-            navController.navigationBar.prefersLargeTitles = true
-            return navController
+        ) { [weak self] _ in
+            self?.analyticsNavController ?? UINavigationController()
         }
         
+        // Create Settings tab - uses pre-created nav controller
         let settingsTab = UITab(
             title: "Settings",
             image: UIImage(systemName: "gearshape"),
             identifier: TabID.settings
-        ) { _ in
-            // Wrap in NavigationController for sub-navigation
-            let settingsVC = SettingsViewController()
-            let navController = UINavigationController(rootViewController: settingsVC)
-            navController.navigationBar.prefersLargeTitles = true
-            return navController
+        ) { [weak self] _ in
+            self?.settingsNavController ?? UINavigationController()
         }
         
         // Create Capture as an ACCESSORY tab (like GitHub Copilot button)
@@ -124,6 +138,31 @@ final class MainTabBarController: UITabBarController, UITabBarControllerDelegate
             return false // Prevent tab switch
         }
         return true
+    }
+    func tabBarController(
+        _ tabBarController: UITabBarController,
+        didSelect viewController: UIViewController
+    ) {
+        guard let navController = viewController as? UINavigationController,
+              let rootViewController = navController.viewControllers.first else {
+            return
+        }
+
+        // Use the view controller's title property directly
+        if let vcTitle = rootViewController.title, !vcTitle.isEmpty {
+            rootViewController.navigationItem.title = vcTitle
+            navController.navigationBar.topItem?.title = vcTitle
+            return
+        }
+
+        // Fallback to tab title
+        if let selectedTab = tabBarController.selectedTab {
+            let tabTitle = selectedTab.title
+            if !tabTitle.isEmpty {
+                rootViewController.navigationItem.title = tabTitle
+                navController.navigationBar.topItem?.title = tabTitle
+            }
+        }
     }
     
     private func presentCaptureModally() {

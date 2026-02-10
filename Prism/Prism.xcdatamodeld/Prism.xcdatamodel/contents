@@ -36,6 +36,7 @@
         <attribute name="itemsBlob" optional="YES" attributeType="String"/>
         <attribute name="tax" optional="YES" attributeType="Decimal"/>
         <attribute name="tip" optional="YES" attributeType="Decimal"/>
+        <attribute name="duplicateOfTransactionID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <relationship name="account" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Account" inverseName="transactions" inverseEntity="Account"/>
         <relationship name="merchant" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Merchant" inverseName="transactions" inverseEntity="Merchant"/>
         <relationship name="scanRecord" optional="YES" maxCount="1" deletionRule="Cascade" destinationEntity="ScanRecord" inverseName="transaction" inverseEntity="ScanRecord"/>
